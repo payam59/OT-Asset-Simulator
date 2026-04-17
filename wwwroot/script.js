@@ -191,7 +191,7 @@ function updateBBMDSelects() {
         const select = document.getElementById(selectId);
         if (select) {
             if (bbmdList.length === 0) {
-                select.innerHTML = '<option value="">⚠ No BBMD configured - Add one first!</option>';
+                select.innerHTML = '<option value="">No BBMD (Local device)</option>';
             } else {
                 select.innerHTML = '<option value="">Select BBMD (required for BACnet)</option>' +
                     bbmdList.map(b => `<option value="${b.id}">${b.name} - Port:${b.port} DevID:${b.device_id}</option>`).join('');
