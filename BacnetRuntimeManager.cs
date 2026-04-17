@@ -30,6 +30,34 @@ namespace OLRTLabSim.Services
             public long BbmdId { get; set; }
         }
 
+
+        private async Task RebuildLocalDevice()
+        {
+            if (_bbmdLifecycles.ContainsKey(0))
+                await StopBbmd(0);
+
+            try
+            {
+                var transport = new BacnetIpUdpProtocolTransport(47808, false, false, 1476, "0.0.0.0");
+                var client = new BacnetClient(transport);
+
+                client.OnReadPropertyRequest += Client_OnReadPropertyRequest;
+                client.OnWritePropertyRequest += Client_OnWritePropertyRequest;
+                client.OnWhoIs += Client_OnWhoIs;
+                client.OnReadPropertyMultipleRequest += Client_OnReadPropertyMultipleRequest;
+
+                client.Start();
+
+                _bbmdLifecycles[0] = client;
+                _bbmdDeviceIds[0] = 1; // Default device ID for local device is 1
+                _bbmdStatus[0] = new { running = true, message = $"Listening on UDP 0.0.0.0:47808 (Local)" };
+            }
+            catch (Exception ex)
+            {
+                _bbmdStatus[0] = new { running = false, message = $"Failed to start local device: {ex.Message}" };
+            }
+        }
+
         private async Task RebuildBbmdLifecycle(Bbmd bbmd)
         {
             if (_bbmdLifecycles.ContainsKey(bbmd.Id))
@@ -68,12 +96,17 @@ namespace OLRTLabSim.Services
 
         private void Client_OnWhoIs(BacnetClient sender, BacnetAddress adr, int lowLimit, int highLimit)
         {
-            var bbmdId = _bbmdLifecycles.FirstOrDefault(x => x.Value == sender).Key;
-            if (bbmdId != 0 && _bbmdDeviceIds.TryGetValue(bbmdId, out uint deviceId))
+            var pair = _bbmdLifecycles.FirstOrDefault(x => x.Value == sender);
+            // Default pair returns Key = 0, Value = null if not found. If Key=0, Value might be null.
+            // Better to explicitly iterate or check the Value safely.
+            if (pair.Value != null)
             {
-                if ((lowLimit == -1 && highLimit == -1) || (deviceId >= lowLimit && deviceId <= highLimit))
+                if (_bbmdDeviceIds.TryGetValue(pair.Key, out uint deviceId))
                 {
-                    sender.Iam(deviceId, BacnetSegmentations.SEGMENTATION_BOTH);
+                    if ((lowLimit == -1 && highLimit == -1) || (deviceId >= lowLimit && deviceId <= highLimit))
+                    {
+                        sender.Iam(deviceId, BacnetSegmentations.SEGMENTATION_BOTH);
+                    }
                 }
             }
         }
@@ -106,8 +139,8 @@ namespace OLRTLabSim.Services
         {
             if (objectId.Type == BacnetObjectTypes.OBJECT_DEVICE)
             {
-                var bbmdId = _bbmdLifecycles.FirstOrDefault(x => x.Value == sender).Key;
-                if (bbmdId != 0 && _bbmdDeviceIds.TryGetValue(bbmdId, out uint deviceId))
+                var pair = _bbmdLifecycles.FirstOrDefault(x => x.Value == sender);
+                if (pair.Value != null && _bbmdDeviceIds.TryGetValue(pair.Key, out uint deviceId))
                 {
                     if (objectId.Instance == deviceId || objectId.Instance == 4194303)
                     {
@@ -152,7 +185,7 @@ namespace OLRTLabSim.Services
                             case (uint)BacnetPropertyIds.PROP_OBJECT_LIST:
                                 if (property.propertyArrayIndex == 0) // size of array
                                 {
-                                    uint count = (uint)_objectIndex.Values.Count(o => o.BbmdId == bbmdId) + 1;
+                                    long bbmdIdLocal1 = pair.Value != null ? pair.Key : -1; uint count = (uint)_objectIndex.Values.Count(o => o.BbmdId == bbmdIdLocal1) + 1;
                                     vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_UNSIGNED_INT, count));
                                 }
                                 else if (property.propertyArrayIndex == 1) // first element is device itself
@@ -162,7 +195,7 @@ namespace OLRTLabSim.Services
                                 else if (property.propertyArrayIndex == uint.MaxValue) // all objects
                                 {
                                     vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(BacnetObjectTypes.OBJECT_DEVICE, deviceId)));
-                                    foreach(var o in _objectIndex.Values.Where(o => o.BbmdId == bbmdId))
+                                    long bbmdIdLocal2 = pair.Value != null ? pair.Key : -1; foreach(var o in _objectIndex.Values.Where(o => o.BbmdId == bbmdIdLocal2))
                                     {
                                         vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(o.ObjectType, o.Instance)));
                                     }
@@ -170,7 +203,7 @@ namespace OLRTLabSim.Services
                                 else
                                 {
                                     int index = (int)property.propertyArrayIndex - 2;
-                                    var objects = _objectIndex.Values.Where(o => o.BbmdId == bbmdId).ToList();
+                                    long bbmdIdLocal3 = pair.Value != null ? pair.Key : -1; var objects = _objectIndex.Values.Where(o => o.BbmdId == bbmdIdLocal3).ToList();
                                     if (index >= 0 && index < objects.Count)
                                     {
                                         var o = objects[index];
@@ -284,9 +317,17 @@ namespace OLRTLabSim.Services
 
         public async Task RegisterAsset(Asset asset)
         {
-            if (!asset.BbmdId.HasValue) return;
 
-            long bbmdId = asset.BbmdId.Value;
+            if (!asset.BbmdId.HasValue)
+            {
+                if (!_bbmdLifecycles.ContainsKey(0))
+                {
+                    await RebuildLocalDevice();
+                }
+            }
+
+
+            long bbmdId = asset.BbmdId ?? 0;
             if (!_bbmdLifecycles.ContainsKey(bbmdId))
                 return;
 

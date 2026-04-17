@@ -324,7 +324,7 @@ namespace OLRTLabSim.Controllers
 
             cmd.ExecuteNonQuery();
 
-            if (asset.Protocol == "bacnet" && asset.BbmdId.HasValue)
+            if (asset.Protocol == "bacnet")
                 await _bacnetManager.RegisterAsset(asset);
             else if (asset.Protocol == "modbus")
                 await _modbusManager.RegisterAsset(asset);
@@ -359,7 +359,7 @@ namespace OLRTLabSim.Controllers
                 }
             }
 
-            if (existing.Protocol == "bacnet" && existing.BbmdId.HasValue)
+            if (existing.Protocol == "bacnet")
                 await _bacnetManager.UnregisterAsset(name);
             else if (existing.Protocol == "modbus")
                 await _modbusManager.UnregisterAsset(name);
@@ -426,7 +426,7 @@ namespace OLRTLabSim.Controllers
 
             cmd.ExecuteNonQuery();
 
-            if (asset.Protocol == "bacnet" && asset.BbmdId.HasValue)
+            if (asset.Protocol == "bacnet")
                 await _bacnetManager.RegisterAsset(asset);
             else if (asset.Protocol == "modbus")
                 await _modbusManager.RegisterAsset(asset);
