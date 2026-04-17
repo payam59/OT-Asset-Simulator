@@ -50,7 +50,7 @@ namespace OLRTLabSim.Services
             { "device_attributes", (0, 254, false, "DeviceAttributes") },
             { "binary_input", (1, 1, false, "Binary") },
             { "double_bit_input", (3, 2, false, "DoubleBitBinary") },
-            { "binary_output", (10, 2, true, "BinaryOutputStatus") },
+            { "binary_output", (10, 1, true, "BinaryOutputStatus") },
             { "binary_output_command", (12, 1, true, "BinaryOutputStatus") },
             { "counter", (20, 1, false, "Counter") },
             { "frozen_counter", (21, 1, false, "FrozenCounter") },
