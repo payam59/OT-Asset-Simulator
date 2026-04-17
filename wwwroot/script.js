@@ -193,7 +193,7 @@ function updateBBMDSelects() {
             if (bbmdList.length === 0) {
                 select.innerHTML = '<option value="">No BBMD (Local device)</option>';
             } else {
-                select.innerHTML = '<option value="">Select BBMD (required for BACnet)</option>' +
+                select.innerHTML = '<option value="">No BBMD (Local device)</option>' +
                     bbmdList.map(b => `<option value="${b.id}">${b.name} - Port:${b.port} DevID:${b.device_id}</option>`).join('');
             }
         }
@@ -404,10 +404,6 @@ window.saveNewAsset = async function() {
         dnp3_static_variation: parseInt(document.getElementById('dnp3_static_variation').value) || 0
     };
 
-    if (isBacnet && !data.bbmd_id) {
-        alert('BACnet assets must be mapped to a BBMD.');
-        return;
-    }
     if (isModbus && !data.modbus_ip) {
         alert('Modbus IP is required for Modbus assets.');
         return;
@@ -548,10 +544,6 @@ window.saveAssetEdit = async function() {
         dnp3_static_variation: parseInt(document.getElementById('edit_dnp3_static_variation').value) || 0
     };
 
-    if (isBacnet && !data.bbmd_id) {
-        alert('BACnet assets must be mapped to a BBMD.');
-        return;
-    }
 
     const res = await fetch(`/api/assets/${encodeURIComponent(name)}`, {
         method: 'PUT',
