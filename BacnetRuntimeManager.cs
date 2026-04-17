@@ -15,6 +15,7 @@ namespace OLRTLabSim.Services
     public class BacnetRuntimeManager
     {
         private readonly ConcurrentDictionary<long, BacnetClient> _bbmdLifecycles = new();
+        private readonly ConcurrentDictionary<long, uint> _bbmdDeviceIds = new();
         private readonly ConcurrentDictionary<long, object> _bbmdStatus = new();
         private readonly ConcurrentDictionary<string, BacnetObject> _objectIndex = new();
 
@@ -45,10 +46,13 @@ namespace OLRTLabSim.Services
 
                 client.OnReadPropertyRequest += Client_OnReadPropertyRequest;
                 client.OnWritePropertyRequest += Client_OnWritePropertyRequest;
+                client.OnWhoIs += Client_OnWhoIs;
+                client.OnReadPropertyMultipleRequest += Client_OnReadPropertyMultipleRequest;
 
                 client.Start();
 
                 _bbmdLifecycles[bbmd.Id] = client;
+                _bbmdDeviceIds[bbmd.Id] = (uint)bbmd.DeviceId;
                 _bbmdStatus[bbmd.Id] = new { running = true, message = $"Listening on UDP {ipAddress}:{bbmd.Port}" };
             }
             catch (SocketException ex)
@@ -59,6 +63,25 @@ namespace OLRTLabSim.Services
             {
                 _bbmdStatus[bbmd.Id] = new { running = false, message = $"Failed to start: {ex.Message}" };
             }
+        }
+
+
+        private void Client_OnWhoIs(BacnetClient sender, BacnetAddress adr, int lowLimit, int highLimit)
+        {
+            var bbmdId = _bbmdLifecycles.FirstOrDefault(x => x.Value == sender).Key;
+            if (bbmdId != 0 && _bbmdDeviceIds.TryGetValue(bbmdId, out uint deviceId))
+            {
+                if ((lowLimit == -1 && highLimit == -1) || (deviceId >= lowLimit && deviceId <= highLimit))
+                {
+                    sender.Iam(deviceId, BacnetSegmentations.SEGMENTATION_BOTH);
+                }
+            }
+        }
+
+        private void Client_OnReadPropertyMultipleRequest(BacnetClient sender, BacnetAddress adr, byte invokeId, IList<BacnetReadAccessSpecification> properties, BacnetMaxSegments maxSegments)
+        {
+            // Force fallback to single ReadProperty by sending an abort or error
+            sender.ErrorResponse(adr, BacnetConfirmedServices.SERVICE_CONFIRMED_READ_PROP_MULTIPLE, invokeId, BacnetErrorClasses.ERROR_CLASS_SERVICES, BacnetErrorCodes.ERROR_CODE_REJECT_UNRECOGNIZED_SERVICE);
         }
 
         private void Client_OnWritePropertyRequest(BacnetClient sender, BacnetAddress adr, byte invokeId, BacnetObjectId objectId, BacnetPropertyValue value, BacnetMaxSegments maxSegments)
@@ -79,19 +102,145 @@ namespace OLRTLabSim.Services
             sender.ErrorResponse(adr, BacnetConfirmedServices.SERVICE_CONFIRMED_WRITE_PROPERTY, invokeId, BacnetErrorClasses.ERROR_CLASS_PROPERTY, BacnetErrorCodes.ERROR_CODE_UNKNOWN_PROPERTY);
         }
 
-        private void Client_OnReadPropertyRequest(BacnetClient sender, BacnetAddress adr, byte invokeId, BacnetObjectId objectId, BacnetPropertyReference property, BacnetMaxSegments maxSegments)
+                private void Client_OnReadPropertyRequest(BacnetClient sender, BacnetAddress adr, byte invokeId, BacnetObjectId objectId, BacnetPropertyReference property, BacnetMaxSegments maxSegments)
         {
+            if (objectId.Type == BacnetObjectTypes.OBJECT_DEVICE)
+            {
+                var bbmdId = _bbmdLifecycles.FirstOrDefault(x => x.Value == sender).Key;
+                if (bbmdId != 0 && _bbmdDeviceIds.TryGetValue(bbmdId, out uint deviceId))
+                {
+                    if (objectId.Instance == deviceId || objectId.Instance == 4194303)
+                    {
+                        var vals = new List<BacnetValue>();
+                        switch (property.propertyIdentifier)
+                        {
+                            case (uint)BacnetPropertyIds.PROP_OBJECT_IDENTIFIER:
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(BacnetObjectTypes.OBJECT_DEVICE, deviceId)));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_OBJECT_NAME:
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_CHARACTER_STRING, $"BBMD_Simulator_{deviceId}"));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_OBJECT_TYPE:
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_ENUMERATED, (uint)BacnetObjectTypes.OBJECT_DEVICE));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_SYSTEM_STATUS:
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_ENUMERATED, (uint)BacnetDeviceStatus.OPERATIONAL));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_VENDOR_IDENTIFIER:
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_UNSIGNED_INT, 0u));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_PROTOCOL_SERVICES_SUPPORTED:
+                                var services = new BacnetBitString();
+                                services.SetBit(40, false);
+                                services.SetBit((byte)BacnetServicesSupported.SERVICE_SUPPORTED_READ_PROPERTY, true);
+                                services.SetBit((byte)BacnetServicesSupported.SERVICE_SUPPORTED_WRITE_PROPERTY, true);
+                                services.SetBit((byte)BacnetServicesSupported.SERVICE_SUPPORTED_WHO_IS, true);
+                                services.SetBit((byte)BacnetServicesSupported.SERVICE_SUPPORTED_I_AM, true);
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_BIT_STRING, services));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_PROTOCOL_OBJECT_TYPES_SUPPORTED:
+                                var types = new BacnetBitString();
+                                types.SetBit(60, false);
+                                types.SetBit((byte)BacnetObjectTypes.OBJECT_ANALOG_VALUE, true);
+                                types.SetBit((byte)BacnetObjectTypes.OBJECT_ANALOG_INPUT, true);
+                                types.SetBit((byte)BacnetObjectTypes.OBJECT_ANALOG_OUTPUT, true);
+                                types.SetBit((byte)BacnetObjectTypes.OBJECT_BINARY_VALUE, true);
+                                types.SetBit((byte)BacnetObjectTypes.OBJECT_BINARY_INPUT, true);
+                                types.SetBit((byte)BacnetObjectTypes.OBJECT_BINARY_OUTPUT, true);
+                                vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_BIT_STRING, types));
+                                break;
+                            case (uint)BacnetPropertyIds.PROP_OBJECT_LIST:
+                                if (property.propertyArrayIndex == 0) // size of array
+                                {
+                                    uint count = (uint)_objectIndex.Values.Count(o => o.BbmdId == bbmdId) + 1;
+                                    vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_UNSIGNED_INT, count));
+                                }
+                                else if (property.propertyArrayIndex == 1) // first element is device itself
+                                {
+                                    vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(BacnetObjectTypes.OBJECT_DEVICE, deviceId)));
+                                }
+                                else if (property.propertyArrayIndex == uint.MaxValue) // all objects
+                                {
+                                    vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(BacnetObjectTypes.OBJECT_DEVICE, deviceId)));
+                                    foreach(var o in _objectIndex.Values.Where(o => o.BbmdId == bbmdId))
+                                    {
+                                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(o.ObjectType, o.Instance)));
+                                    }
+                                }
+                                else
+                                {
+                                    int index = (int)property.propertyArrayIndex - 2;
+                                    var objects = _objectIndex.Values.Where(o => o.BbmdId == bbmdId).ToList();
+                                    if (index >= 0 && index < objects.Count)
+                                    {
+                                        var o = objects[index];
+                                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(o.ObjectType, o.Instance)));
+                                    }
+                                }
+                                break;
+                        }
+
+                        if (vals.Count > 0)
+                        {
+                            sender.ReadPropertyResponse(adr, invokeId, sender.GetSegmentBuffer(maxSegments), objectId, property, vals);
+                            return;
+                        }
+                    }
+                }
+            }
+
             var obj = _objectIndex.Values.FirstOrDefault(o => o.Instance == objectId.Instance && o.ObjectType == objectId.Type);
 
-            if (obj != null && property.propertyIdentifier == (uint)BacnetPropertyIds.PROP_PRESENT_VALUE)
+            if (obj != null)
             {
-                var val = new List<BacnetValue> { new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_REAL, (float)obj.PresentValue) };
-                sender.ReadPropertyResponse(adr, invokeId, sender.GetSegmentBuffer(maxSegments), objectId, property, val);
-                return;
+                var vals = new List<BacnetValue>();
+                switch (property.propertyIdentifier)
+                {
+                    case (uint)BacnetPropertyIds.PROP_OBJECT_IDENTIFIER:
+                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_OBJECT_ID, new BacnetObjectId(obj.ObjectType, obj.Instance)));
+                        break;
+                    case (uint)BacnetPropertyIds.PROP_OBJECT_NAME:
+                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_CHARACTER_STRING, obj.Name));
+                        break;
+                    case (uint)BacnetPropertyIds.PROP_OBJECT_TYPE:
+                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_ENUMERATED, (uint)obj.ObjectType));
+                        break;
+                    case (uint)BacnetPropertyIds.PROP_PRESENT_VALUE:
+                        if (obj.ObjectType == BacnetObjectTypes.OBJECT_BINARY_INPUT || obj.ObjectType == BacnetObjectTypes.OBJECT_BINARY_OUTPUT || obj.ObjectType == BacnetObjectTypes.OBJECT_BINARY_VALUE)
+                        {
+                            vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_ENUMERATED, (uint)(obj.PresentValue >= 0.5 ? 1 : 0)));
+                        }
+                        else
+                        {
+                            vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_REAL, (float)obj.PresentValue));
+                        }
+                        break;
+                    case (uint)BacnetPropertyIds.PROP_STATUS_FLAGS:
+                        var status = new BacnetBitString();
+                        status.SetBit(0, false); // in-alarm
+                        status.SetBit(1, false); // fault
+                        status.SetBit(2, false); // overridden
+                        status.SetBit(3, false); // out-of-service
+                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_BIT_STRING, status));
+                        break;
+                    case (uint)BacnetPropertyIds.PROP_OUT_OF_SERVICE:
+                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_BOOLEAN, false));
+                        break;
+                    case (uint)BacnetPropertyIds.PROP_UNITS:
+                        vals.Add(new BacnetValue(BacnetApplicationTags.BACNET_APPLICATION_TAG_ENUMERATED, 95u)); // 95 = no units
+                        break;
+                }
+
+                if (vals.Count > 0)
+                {
+                    sender.ReadPropertyResponse(adr, invokeId, sender.GetSegmentBuffer(maxSegments), objectId, property, vals);
+                    return;
+                }
             }
 
             sender.ErrorResponse(adr, BacnetConfirmedServices.SERVICE_CONFIRMED_READ_PROPERTY, invokeId, BacnetErrorClasses.ERROR_CLASS_PROPERTY, BacnetErrorCodes.ERROR_CODE_UNKNOWN_PROPERTY);
         }
+
 
         public async Task StartBbmd(long id)
         {
