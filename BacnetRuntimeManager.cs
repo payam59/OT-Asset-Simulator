@@ -126,7 +126,14 @@ namespace OLRTLabSim.Services
             {
                 if (value.value != null && value.value.Any())
                 {
-                    obj.PresentValue = Convert.ToDouble(value.value[0].Value);
+                    var val = value.value[0].Value;
+                    if (val is bool bVal)
+                        obj.PresentValue = bVal ? 1.0 : 0.0;
+                    else if (val is uint uVal)
+                        obj.PresentValue = uVal;
+                    else
+                        obj.PresentValue = Convert.ToDouble(val);
+
                     sender.SimpleAckResponse(adr, BacnetConfirmedServices.SERVICE_CONFIRMED_WRITE_PROPERTY, invokeId);
                     return;
                 }
