@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Microsoft.Data.Sqlite;
 using System.IO;
+using OLRTLabSim.Helpers;
 
 namespace OLRTLabSim.Data
 {
@@ -89,6 +90,36 @@ namespace OLRTLabSim.Data
                             FOREIGN KEY (asset_id) REFERENCES assets(id) ON DELETE CASCADE
                         )";
                     cmd.ExecuteNonQuery();
+
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS users (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            username TEXT UNIQUE NOT NULL,
+                            password TEXT NOT NULL,
+                            access_level TEXT NOT NULL,
+                            needs_password_change INTEGER DEFAULT 1
+                        )";
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Seed default admin user if it doesn't exist
+                using (var cmd = conn.CreateCommand())
+                {
+                    string encAdminUser = CryptoHelper.EncryptDeterministic("admin");
+                    cmd.CommandText = "SELECT COUNT(*) FROM users WHERE username = @username";
+                    cmd.Parameters.AddWithValue("@username", encAdminUser);
+                    var count = Convert.ToInt64(cmd.ExecuteScalar());
+
+                    if (count == 0)
+                    {
+                        cmd.CommandText = @"INSERT INTO users (username, password, access_level, needs_password_change)
+                                            VALUES (@user, @pass, @access, 1)";
+                        cmd.Parameters.Clear();
+                        cmd.Parameters.AddWithValue("@user", encAdminUser);
+                        cmd.Parameters.AddWithValue("@pass", CryptoHelper.EncryptRandom("admin"));
+                        cmd.Parameters.AddWithValue("@access", CryptoHelper.EncryptDeterministic("admin"));
+                        cmd.ExecuteNonQuery();
+                    }
                 }
 
                 // SQLite doesn't natively support easy ALTER TABLE for multiple columns in old versions

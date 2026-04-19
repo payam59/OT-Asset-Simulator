@@ -1,10 +1,15 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using System;
 using System.Collections.Generic;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using OLRTLabSim.Models;
 using OLRTLabSim.Data;
 using OLRTLabSim.Services;
+using OLRTLabSim.Helpers;
 
 namespace OLRTLabSim.Controllers
 {
@@ -100,6 +105,7 @@ namespace OLRTLabSim.Controllers
             };
         }
 
+        [Authorize]
         [HttpGet("assets")]
         public IActionResult GetAssets()
         {
@@ -156,6 +162,7 @@ namespace OLRTLabSim.Controllers
             return Ok(assets);
         }
 
+        [Authorize]
         [HttpGet("assets/{name}")]
         public IActionResult GetAsset(string name)
         {
@@ -205,6 +212,7 @@ namespace OLRTLabSim.Controllers
             });
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpPut("override/{name}")]
         public IActionResult OverrideAsset(string name, [FromQuery] double value)
         {
@@ -225,6 +233,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = $"{name} manually overridden to {value}" });
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpPut("release/{name}")]
         public IActionResult ReleaseAsset(string name)
         {
@@ -238,6 +247,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = $"{name} released to automation" });
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpPost("assets")]
         public async Task<IActionResult> CreateAsset([FromBody] Asset asset)
         {
@@ -335,6 +345,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = "Asset added successfully" });
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpPut("assets/{name}")]
         public async Task<IActionResult> UpdateAsset(string name, [FromBody] Asset asset)
         {
@@ -439,6 +450,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = "Asset updated successfully" });
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpDelete("assets/{name}")]
         public async Task<IActionResult> DeleteAsset(string name)
         {
@@ -466,6 +478,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = "Asset deleted" });
         }
 
+        [Authorize]
         [HttpGet("bbmd")]
         public IActionResult GetBbmds()
         {
@@ -490,6 +503,7 @@ namespace OLRTLabSim.Controllers
             return Ok(bbmds);
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpPost("bbmd")]
         public async Task<IActionResult> CreateBbmd([FromBody] Bbmd bbmd)
         {
@@ -522,6 +536,7 @@ namespace OLRTLabSim.Controllers
             }
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpPut("bbmd/{id}")]
         public async Task<IActionResult> UpdateBbmd(long id, [FromBody] Bbmd bbmd)
         {
@@ -549,6 +564,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = "BBMD updated successfully" });
         }
 
+        [Authorize(Roles = "admin,read_write")]
         [HttpDelete("bbmd/{id}")]
         public async Task<IActionResult> DeleteBbmd(long id)
         {
@@ -563,6 +579,7 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = "BBMD deleted successfully" });
         }
 
+        [Authorize]
         [HttpGet("alarms")]
         public IActionResult GetAlarms([FromQuery] int active_only = 0)
         {
@@ -588,13 +605,164 @@ namespace OLRTLabSim.Controllers
             return Ok(alarms);
         }
 
+        [Authorize]
         [HttpGet("bacnet/status")]
         public IActionResult GetBacnetStatus() => Ok(_bacnetManager.Status());
 
+        [Authorize]
         [HttpGet("modbus/status")]
         public IActionResult GetModbusStatus() => Ok(_modbusManager.Status());
 
+        [Authorize]
         [HttpGet("dnp3/status")]
         public IActionResult GetDnp3Status() => Ok(_dnp3Manager.Status());
+    }
+
+    [ApiController]
+    [Route("api/auth")]
+    public class AuthController : ControllerBase
+    {
+        [Authorize(Roles = "admin,read_write")]
+        [HttpPost("login")]
+        public async Task<IActionResult> Login([FromBody] LoginRequest req)
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, username, password, access_level, needs_password_change FROM users WHERE username = @username";
+            cmd.Parameters.AddWithValue("@username", CryptoHelper.EncryptDeterministic(req.Username));
+
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                string encPassword = reader.GetString(2);
+                string plainPassword = CryptoHelper.DecryptRandom(encPassword);
+
+                if (plainPassword == req.Password)
+                {
+                    string accessLevel = CryptoHelper.DecryptDeterministic(reader.GetString(3));
+                    long needsChange = reader.GetInt64(4);
+
+                    var claims = new List<Claim>
+                    {
+                        new Claim(ClaimTypes.NameIdentifier, reader.GetInt64(0).ToString()),
+                        new Claim(ClaimTypes.Name, req.Username),
+                        new Claim(ClaimTypes.Role, accessLevel),
+                        new Claim("NeedsPasswordChange", needsChange.ToString())
+                    };
+
+                    var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+                    await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(claimsIdentity));
+
+                    return Ok(new { success = true, role = accessLevel, needs_password_change = needsChange == 1 });
+                }
+            }
+
+            return Unauthorized(new { error = "Invalid username or password" });
+        }
+
+        [Authorize(Roles = "admin,read_write")]
+        [HttpPost("logout")]
+        public async Task<IActionResult> Logout()
+        {
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Ok(new { success = true });
+        }
+
+        [Authorize]
+        [Authorize(Roles = "admin,read_write")]
+        [HttpPost("change-password")]
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest req)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT password FROM users WHERE id = @id";
+            cmd.Parameters.AddWithValue("@id", userId);
+
+            var encPassword = (string?)cmd.ExecuteScalar();
+            if (encPassword == null) return NotFound();
+
+            var plainPassword = CryptoHelper.DecryptRandom(encPassword);
+            if (plainPassword != req.OldPassword)
+            {
+                return BadRequest(new { error = "Invalid old password" });
+            }
+
+            using var updateCmd = conn.CreateCommand();
+            updateCmd.CommandText = "UPDATE users SET password = @newpass, needs_password_change = 0 WHERE id = @id";
+            updateCmd.Parameters.AddWithValue("@newpass", CryptoHelper.EncryptRandom(req.NewPassword));
+            updateCmd.Parameters.AddWithValue("@id", userId);
+            updateCmd.ExecuteNonQuery();
+
+            await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            return Ok(new { success = true });
+        }
+
+        [Authorize]
+        [Authorize]
+        [HttpGet("me")]
+        public IActionResult GetMe()
+        {
+            return Ok(new {
+                username = User.Identity?.Name,
+                role = User.FindFirstValue(ClaimTypes.Role),
+                needs_password_change = User.HasClaim("NeedsPasswordChange", "1")
+            });
+        }
+
+        [Authorize(Roles = "admin")]
+        [Authorize]
+        [HttpGet("users")]
+        public IActionResult GetUsers()
+        {
+            var users = new List<object>();
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT id, username, access_level, needs_password_change FROM users";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                users.Add(new {
+                    id = reader.GetInt64(0),
+                    username = CryptoHelper.DecryptDeterministic(reader.GetString(1)),
+                    access_level = CryptoHelper.DecryptDeterministic(reader.GetString(2)),
+                    needs_password_change = reader.GetInt64(3) == 1
+                });
+            }
+            return Ok(users);
+        }
+
+        [Authorize(Roles = "admin")]
+        [Authorize(Roles = "admin,read_write")]
+        [HttpPost("users")]
+        public IActionResult CreateUser([FromBody] UserCreateRequest req)
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"INSERT INTO users (username, password, access_level, needs_password_change)
+                                VALUES (@user, @pass, @access, 1)";
+            cmd.Parameters.AddWithValue("@user", CryptoHelper.EncryptDeterministic(req.Username));
+            cmd.Parameters.AddWithValue("@pass", CryptoHelper.EncryptRandom(req.Password));
+            cmd.Parameters.AddWithValue("@access", CryptoHelper.EncryptDeterministic(req.AccessLevel));
+            cmd.ExecuteNonQuery();
+            return Ok(new { success = true });
+        }
+
+        [Authorize(Roles = "admin")]
+        [Authorize(Roles = "admin,read_write")]
+        [HttpPut("users/{id}/reset")]
+        public IActionResult ResetPassword(long id, [FromBody] UserCreateRequest req)
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE users SET password = @pass, needs_password_change = 1 WHERE id = @id";
+            cmd.Parameters.AddWithValue("@pass", CryptoHelper.EncryptRandom(req.Password));
+            cmd.Parameters.AddWithValue("@id", id);
+            int rows = cmd.ExecuteNonQuery();
+            if (rows == 0) return NotFound();
+            return Ok(new { success = true });
+        }
     }
 }
