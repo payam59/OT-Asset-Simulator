@@ -73,7 +73,7 @@ function renderBBMDs(bbmds) {
                         <div><strong>Device ID:</strong> ${b.device_id}</div>
                         <div><strong>IP:</strong> ${b.ip_address}</div>
                     </div>
-                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`
+                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`}
                         <button class="btn btn-sm btn-outline-primary" data-bbmd-edit="${b.id}" onclick="window.editBBMD(${b.id})" type="button">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -119,7 +119,7 @@ function renderAssets(assets) {
             <div class="card asset-card p-3 shadow-sm ${cardBorderClass} ${cardBgClass}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="badge bg-dark">${a.protocol.toUpperCase()}</span>
-                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`
+                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`}
                         <button class="btn btn-link text-primary p-0" onclick="window.openEditModal('${a.name}')"><i class="fas fa-edit"></i></button>
                         <button class="btn btn-link text-danger p-0" onclick="window.deleteAsset('${a.name}')"><i class="fas fa-times"></i></button>
                     </div>
@@ -138,7 +138,7 @@ function renderAssets(assets) {
                     <h2 class="value-display my-2 ${inAlarm ? 'text-danger fw-bold' : (isActive ? 'text-success' : '')}">${statusText}</h2>
                     ${!isDigital ? `<small class="text-muted">Range: ${a.min_range} - ${a.max_range}</small>` : ''}
                 </div>
-                ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2 mt-2">` : `<div class="d-flex gap-2 mt-2 d-none">`
+                ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2 mt-2">` : `<div class="d-flex gap-2 mt-2 d-none">`}
                     ${isDigital ?
                         `<button class="btn btn-sm ${isActive ? 'btn-danger' : 'btn-success'} w-100" onclick="window.toggleDigital('${a.name}', ${a.current_value})">
                             ${isActive ? 'Turn OFF' : 'Turn ON'}
