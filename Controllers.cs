@@ -622,7 +622,6 @@ namespace OLRTLabSim.Controllers
     [Route("api/auth")]
     public class AuthController : ControllerBase
     {
-        [Authorize(Roles = "admin,read_write")]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest req)
         {
@@ -660,7 +659,7 @@ namespace OLRTLabSim.Controllers
             return Unauthorized(new { error = "Invalid username or password" });
         }
 
-        [Authorize(Roles = "admin,read_write")]
+        [Authorize]
         [HttpPost("logout")]
         public async Task<IActionResult> Logout()
         {
@@ -669,7 +668,6 @@ namespace OLRTLabSim.Controllers
         }
 
         [Authorize]
-        [Authorize(Roles = "admin,read_write")]
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest req)
         {
