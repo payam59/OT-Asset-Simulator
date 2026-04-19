@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enterprise Security Settings</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="d-flex justify-content-between align-items-center mb-5">
+            <h2 class="fw-bold"><i class="fas fa-shield-alt me-2"></i>Security Settings</h2>
+            <div class="d-flex gap-2">
+                <a class="btn btn-outline-secondary" href="/admin">
+                    <i class="fas fa-arrow-left me-2"></i>Back to Users
+                </a>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white fw-bold">General Policy</div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Session Timeout (Minutes)</label>
+                        <input type="number" id="sessionTimeout" class="form-control" value="60">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Password History Count</label>
+                        <input type="number" id="passwordHistory" class="form-control" value="3">
+                        <small class="text-muted">Number of previous passwords that cannot be reused.</small>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Password Complexity Regex</label>
+                    <input type="text" id="passwordRegex" class="form-control" value="^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$">
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white fw-bold">Active Directory SSO Integration</div>
+            <div class="card-body">
+                <div class="form-check form-switch mb-3">
+                    <input class="form-check-input" type="checkbox" id="adEnabled">
+                    <label class="form-check-label" for="adEnabled">Enable AD Authentication</label>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">AD Server (LDAP/LDAPS)</label>
+                        <input type="text" id="adServer" class="form-control" placeholder="ldaps://dc.example.com">
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">AD Domain</label>
+                        <input type="text" id="adDomain" class="form-control" placeholder="example.com">
+                    </div>
+                </div>
+
+                <h6 class="mt-4 mb-3 text-muted">Role Mapping (AD Groups)</h6>
+                <div class="row mb-3">
+                    <div class="col-md-4">
+                        <label class="form-label">Admin Group</label>
+                        <input type="text" id="adGroupAdmin" class="form-control" placeholder="CN=LabAdmins,OU=Groups,DC=example,DC=com">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Read/Write Group</label>
+                        <input type="text" id="adGroupRw" class="form-control" placeholder="CN=LabOperators,OU=Groups,DC=example,DC=com">
+                    </div>
+                    <div class="col-md-4">
+                        <label class="form-label">Read-Only Group</label>
+                        <input type="text" id="adGroupRo" class="form-control" placeholder="CN=LabGuests,OU=Groups,DC=example,DC=com">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-end">
+            <button class="btn btn-primary px-4" onclick="saveSettings()">Save Configuration</button>
+        </div>
+    </div>
+
+    <script>
+        async function loadSettings() {
+            try {
+                const res = await fetch('/api/auth/settings');
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('sessionTimeout').value = data.sessionTimeoutMinutes;
+                    document.getElementById('passwordRegex').value = data.passwordComplexityRegex;
+                    document.getElementById('passwordHistory').value = data.passwordHistoryCount;
+                    document.getElementById('adEnabled').checked = data.adEnabled === 1;
+                    document.getElementById('adServer').value = data.adServer;
+                    document.getElementById('adDomain').value = data.adDomain;
+                    document.getElementById('adGroupAdmin').value = data.adGroupAdmin;
+                    document.getElementById('adGroupRw').value = data.adGroupRw;
+                    document.getElementById('adGroupRo').value = data.adGroupRo;
+                } else if (res.status === 401 || res.status === 403) {
+                    window.location.href = '/login';
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function saveSettings() {
+            const payload = {
+                SessionTimeoutMinutes: parseInt(document.getElementById('sessionTimeout').value),
+                PasswordComplexityRegex: document.getElementById('passwordRegex').value,
+                PasswordHistoryCount: parseInt(document.getElementById('passwordHistory').value),
+                AdEnabled: document.getElementById('adEnabled').checked ? 1 : 0,
+                AdServer: document.getElementById('adServer').value,
+                AdDomain: document.getElementById('adDomain').value,
+                AdGroupAdmin: document.getElementById('adGroupAdmin').value,
+                AdGroupRw: document.getElementById('adGroupRw').value,
+                AdGroupRo: document.getElementById('adGroupRo').value
+            };
+
+            const res = await fetch('/api/auth/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                alert('Settings saved successfully.');
+            } else {
+                alert('Failed to save settings.');
+            }
+        }
+
+        loadSettings();
+    </script>
+</body>
+</html>
