@@ -81,4 +81,32 @@ namespace OLRTLabSim.Models
         public double CreatedAt { get; set; }
         public double? ClearedAt { get; set; }
     }
+
+    public class User
+    {
+        public long Id { get; set; }
+        public string Username { get; set; }
+        public string Password { get; set; }
+        public string AccessLevel { get; set; }
+        public long NeedsPasswordChange { get; set; }
+    }
+
+    public class LoginRequest
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+    }
+
+    public class ChangePasswordRequest
+    {
+        public string OldPassword { get; set; }
+        public string NewPassword { get; set; }
+    }
+
+    public class UserCreateRequest
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+        public string AccessLevel { get; set; }
+    }
 }

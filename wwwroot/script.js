@@ -73,7 +73,7 @@ function renderBBMDs(bbmds) {
                         <div><strong>Device ID:</strong> ${b.device_id}</div>
                         <div><strong>IP:</strong> ${b.ip_address}</div>
                     </div>
-                    <div class="d-flex gap-2">
+                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`
                         <button class="btn btn-sm btn-outline-primary" data-bbmd-edit="${b.id}" onclick="window.editBBMD(${b.id})" type="button">
                             <i class="fas fa-edit"></i> Edit
                         </button>
@@ -119,7 +119,7 @@ function renderAssets(assets) {
             <div class="card asset-card p-3 shadow-sm ${cardBorderClass} ${cardBgClass}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="badge bg-dark">${a.protocol.toUpperCase()}</span>
-                    <div class="d-flex gap-2">
+                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`
                         <button class="btn btn-link text-primary p-0" onclick="window.openEditModal('${a.name}')"><i class="fas fa-edit"></i></button>
                         <button class="btn btn-link text-danger p-0" onclick="window.deleteAsset('${a.name}')"><i class="fas fa-times"></i></button>
                     </div>
@@ -138,7 +138,7 @@ function renderAssets(assets) {
                     <h2 class="value-display my-2 ${inAlarm ? 'text-danger fw-bold' : (isActive ? 'text-success' : '')}">${statusText}</h2>
                     ${!isDigital ? `<small class="text-muted">Range: ${a.min_range} - ${a.max_range}</small>` : ''}
                 </div>
-                <div class="d-flex gap-2 mt-2">
+                ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2 mt-2">` : `<div class="d-flex gap-2 mt-2 d-none">`
                     ${isDigital ?
                         `<button class="btn btn-sm ${isActive ? 'btn-danger' : 'btn-success'} w-100" onclick="window.toggleDigital('${a.name}', ${a.current_value})">
                             ${isActive ? 'Turn OFF' : 'Turn ON'}
@@ -611,7 +611,42 @@ window.toggleProtocolFields = function(prefix = '') {
     if (objectTypeContainer) objectTypeContainer.style.display = isBacnet ? 'block' : 'none';
 };
 
-document.addEventListener('DOMContentLoaded', () => {
+let userRole = 'read_only';
+
+async function fetchMe() {
+    try {
+        const res = await fetch('/api/auth/me');
+        if (res.ok) {
+            const data = await res.json();
+            userRole = data.role;
+            if (userRole === 'admin') {
+                const btn = document.getElementById('manageUsersBtn');
+                if (btn) btn.classList.remove('d-none');
+            }
+            if (userRole === 'read_only') {
+                document.querySelectorAll('.btn-primary[data-bs-target="#addModal"]').forEach(el => el.classList.add('d-none'));
+                document.querySelectorAll('.btn-success[data-bs-target="#bbmdModal"]').forEach(el => el.classList.add('d-none'));
+            }
+        }
+    } catch (e) {}
+}
+
+async function logout() {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    window.location.href = '/login';
+}
+
+const originalFetch = window.fetch;
+window.fetch = async function() {
+    const res = await originalFetch.apply(this, arguments);
+    if (res.status === 401 || res.status === 403) {
+        window.location.href = '/login';
+    }
+    return res;
+};
+
+document.addEventListener('DOMContentLoaded', async () => {
+    await fetchMe();
     const addProtocolSelect = document.getElementById('protocol');
     if (addProtocolSelect) {
         addProtocolSelect.addEventListener('change', () => window.toggleProtocolFields(''));
