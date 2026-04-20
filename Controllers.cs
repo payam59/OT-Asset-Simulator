@@ -10,6 +10,9 @@ using OLRTLabSim.Models;
 using OLRTLabSim.Data;
 using OLRTLabSim.Services;
 using OLRTLabSim.Helpers;
+using System.Text.RegularExpressions;
+using System.DirectoryServices.Protocols;
+using System.Net;
 
 namespace OLRTLabSim.Controllers
 {
@@ -622,45 +625,143 @@ namespace OLRTLabSim.Controllers
     [Route("api/auth")]
     public class AuthController : ControllerBase
     {
-        [Authorize(Roles = "admin,read_write")]
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest req)
         {
             using var conn = Database.GetConnection();
-            using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT id, username, password, access_level, needs_password_change FROM users WHERE username = @username";
-            cmd.Parameters.AddWithValue("@username", CryptoHelper.EncryptDeterministic(req.Username));
-
-            using var reader = cmd.ExecuteReader();
-            if (reader.Read())
+            using var settingsCmd = conn.CreateCommand();
+            settingsCmd.CommandText = "SELECT * FROM settings WHERE id = 1";
+            long sessionTimeout = 60;
+            bool adEnabled = false;
+            string adServer = "", adDomain = "", adGroupAdmin = "", adGroupRw = "", adGroupRo = "";
+            using (var sReader = settingsCmd.ExecuteReader())
             {
-                string encPassword = reader.GetString(2);
-                string plainPassword = CryptoHelper.DecryptRandom(encPassword);
-
-                if (plainPassword == req.Password)
+                if (sReader.Read())
                 {
-                    string accessLevel = CryptoHelper.DecryptDeterministic(reader.GetString(3));
-                    long needsChange = reader.GetInt64(4);
-
-                    var claims = new List<Claim>
-                    {
-                        new Claim(ClaimTypes.NameIdentifier, reader.GetInt64(0).ToString()),
-                        new Claim(ClaimTypes.Name, req.Username),
-                        new Claim(ClaimTypes.Role, accessLevel),
-                        new Claim("NeedsPasswordChange", needsChange.ToString())
-                    };
-
-                    var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
-                    await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(claimsIdentity));
-
-                    return Ok(new { success = true, role = accessLevel, needs_password_change = needsChange == 1 });
+                    sessionTimeout = sReader.GetInt64(sReader.GetOrdinal("session_timeout_minutes"));
+                    adEnabled = sReader.GetInt64(sReader.GetOrdinal("ad_enabled")) == 1;
+                    adServer = sReader.GetString(sReader.GetOrdinal("ad_server"));
+                    adDomain = sReader.GetString(sReader.GetOrdinal("ad_domain"));
+                    adGroupAdmin = sReader.GetString(sReader.GetOrdinal("ad_group_admin"));
+                    adGroupRw = sReader.GetString(sReader.GetOrdinal("ad_group_rw"));
+                    adGroupRo = sReader.GetString(sReader.GetOrdinal("ad_group_ro"));
                 }
+            }
+
+            string accessLevel = null;
+            long needsChange = 0;
+            long userId = 0;
+
+            if (adEnabled && !string.IsNullOrWhiteSpace(adServer))
+            {
+                try
+                {
+                    string fqdn = $"{req.Username}@{adDomain}";
+                    using var ldap = new LdapConnection(new LdapDirectoryIdentifier(adServer));
+                    ldap.Credential = new NetworkCredential(fqdn, req.Password);
+                    ldap.AuthType = AuthType.Basic;
+                    ldap.Bind();
+
+                    // Search for user's memberOf attribute
+                    string searchFilter = $"(&(objectClass=user)(sAMAccountName={req.Username}))";
+                    var searchRequest = new SearchRequest(
+                        adDomain.Replace(".", ",DC=").Insert(0, "DC="), // Simple heuristic for base DN
+                        searchFilter,
+                        System.DirectoryServices.Protocols.SearchScope.Subtree,
+                        "memberOf"
+                    );
+
+                    accessLevel = "read_only"; // Default AD role
+
+                    try
+                    {
+                        var searchResponse = (SearchResponse)ldap.SendRequest(searchRequest);
+                        if (searchResponse.Entries.Count > 0)
+                        {
+                            var entry = searchResponse.Entries[0];
+                            if (entry.Attributes.Contains("memberOf"))
+                            {
+                                var memberOfAttr = entry.Attributes["memberOf"];
+                                bool isAdmin = false;
+                                bool isRw = false;
+                                bool isRo = false;
+
+                                foreach (var attrValue in memberOfAttr.GetValues(typeof(string)))
+                                {
+                                    string groupDn = attrValue.ToString();
+                                    if (!string.IsNullOrWhiteSpace(adGroupAdmin) && groupDn.Contains(adGroupAdmin, StringComparison.OrdinalIgnoreCase)) isAdmin = true;
+                                    if (!string.IsNullOrWhiteSpace(adGroupRw) && groupDn.Contains(adGroupRw, StringComparison.OrdinalIgnoreCase)) isRw = true;
+                                    if (!string.IsNullOrWhiteSpace(adGroupRo) && groupDn.Contains(adGroupRo, StringComparison.OrdinalIgnoreCase)) isRo = true;
+                                }
+
+                                if (isAdmin) accessLevel = "admin";
+                                else if (isRw) accessLevel = "read_write";
+                                else if (isRo) accessLevel = "read_only";
+                            }
+                        }
+                    }
+                    catch
+                    {
+                        // Ignore search errors, fallback to default role or generic handling
+                    }
+
+                    userId = -1; // Fake ID for AD users
+                    needsChange = 0; // AD manages its own passwords
+                }
+                catch
+                {
+                    // AD auth failed, try local fallback if allowed
+                }
+            }
+
+            if (accessLevel == null)
+            {
+                // Local DB Auth
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT id, username, password, access_level, needs_password_change FROM users WHERE username = @username";
+                cmd.Parameters.AddWithValue("@username", CryptoHelper.EncryptDeterministic(req.Username));
+
+                using var reader = cmd.ExecuteReader();
+                if (reader.Read())
+                {
+                    string encPassword = reader.GetString(2);
+                    string plainPassword = CryptoHelper.DecryptRandom(encPassword);
+
+                    if (plainPassword == req.Password)
+                    {
+                        accessLevel = CryptoHelper.DecryptDeterministic(reader.GetString(3));
+                        needsChange = reader.GetInt64(4);
+                        userId = reader.GetInt64(0);
+                    }
+                }
+            }
+
+            if (accessLevel != null)
+            {
+                var claims = new List<Claim>
+                {
+                    new Claim(ClaimTypes.NameIdentifier, userId.ToString()),
+                    new Claim(ClaimTypes.Name, req.Username),
+                    new Claim(ClaimTypes.Role, accessLevel),
+                    new Claim("NeedsPasswordChange", needsChange.ToString())
+                };
+
+                var claimsIdentity = new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme);
+                var authProperties = new AuthenticationProperties
+                {
+                    ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(sessionTimeout),
+                    IsPersistent = true
+                };
+
+                await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(claimsIdentity), authProperties);
+
+                return Ok(new { success = true, role = accessLevel, needs_password_change = needsChange == 1 });
             }
 
             return Unauthorized(new { error = "Invalid username or password" });
         }
 
-        [Authorize(Roles = "admin,read_write")]
+        [Authorize]
         [HttpPost("logout")]
         public async Task<IActionResult> Logout()
         {
@@ -669,14 +770,33 @@ namespace OLRTLabSim.Controllers
         }
 
         [Authorize]
-        [Authorize(Roles = "admin,read_write")]
         [HttpPost("change-password")]
         public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest req)
         {
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (string.IsNullOrEmpty(userId)) return Unauthorized();
+            if (string.IsNullOrEmpty(userId) || userId == "-1") return Unauthorized();
 
             using var conn = Database.GetConnection();
+
+            // Get settings
+            using var settingsCmd = conn.CreateCommand();
+            settingsCmd.CommandText = "SELECT password_complexity_regex, password_history_count FROM settings WHERE id = 1";
+            string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
+            long historyCount = 3;
+            using (var sReader = settingsCmd.ExecuteReader())
+            {
+                if (sReader.Read())
+                {
+                    regexPattern = sReader.GetString(0);
+                    historyCount = sReader.GetInt64(1);
+                }
+            }
+
+            if (!Regex.IsMatch(req.NewPassword, regexPattern))
+            {
+                return BadRequest(new { error = "Password does not meet complexity requirements." });
+            }
+
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "SELECT password FROM users WHERE id = @id";
             cmd.Parameters.AddWithValue("@id", userId);
@@ -690,6 +810,37 @@ namespace OLRTLabSim.Controllers
                 return BadRequest(new { error = "Invalid old password" });
             }
 
+            if (plainPassword == req.NewPassword)
+            {
+                return BadRequest(new { error = "Password must be different from current password." });
+            }
+
+            // Check history
+            using var histCmd = conn.CreateCommand();
+            histCmd.CommandText = "SELECT password FROM password_history WHERE user_id = @id ORDER BY changed_at DESC LIMIT @limit";
+            histCmd.Parameters.AddWithValue("@id", userId);
+            histCmd.Parameters.AddWithValue("@limit", historyCount);
+            using (var hReader = histCmd.ExecuteReader())
+            {
+                while (hReader.Read())
+                {
+                    var oldEnc = hReader.GetString(0);
+                    if (CryptoHelper.DecryptRandom(oldEnc) == req.NewPassword)
+                    {
+                        return BadRequest(new { error = "Password was used recently." });
+                    }
+                }
+            }
+
+            // Save to history
+            using var insertHistCmd = conn.CreateCommand();
+            insertHistCmd.CommandText = "INSERT INTO password_history (user_id, password, changed_at) VALUES (@uid, @pass, @ts)";
+            insertHistCmd.Parameters.AddWithValue("@uid", userId);
+            insertHistCmd.Parameters.AddWithValue("@pass", encPassword);
+            insertHistCmd.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+            insertHistCmd.ExecuteNonQuery();
+
+            // Update user
             using var updateCmd = conn.CreateCommand();
             updateCmd.CommandText = "UPDATE users SET password = @newpass, needs_password_change = 0 WHERE id = @id";
             updateCmd.Parameters.AddWithValue("@newpass", CryptoHelper.EncryptRandom(req.NewPassword));
@@ -740,6 +891,19 @@ namespace OLRTLabSim.Controllers
         public IActionResult CreateUser([FromBody] UserCreateRequest req)
         {
             using var conn = Database.GetConnection();
+            using var settingsCmd = conn.CreateCommand();
+            settingsCmd.CommandText = "SELECT password_complexity_regex FROM settings WHERE id = 1";
+            string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
+            using (var sReader = settingsCmd.ExecuteReader())
+            {
+                if (sReader.Read()) regexPattern = sReader.GetString(0);
+            }
+
+            if (!Regex.IsMatch(req.Password, regexPattern))
+            {
+                return BadRequest(new { error = "Password does not meet complexity requirements." });
+            }
+
             using var cmd = conn.CreateCommand();
             cmd.CommandText = @"INSERT INTO users (username, password, access_level, needs_password_change)
                                 VALUES (@user, @pass, @access, 1)";
@@ -756,6 +920,19 @@ namespace OLRTLabSim.Controllers
         public IActionResult ResetPassword(long id, [FromBody] UserCreateRequest req)
         {
             using var conn = Database.GetConnection();
+            using var settingsCmd = conn.CreateCommand();
+            settingsCmd.CommandText = "SELECT password_complexity_regex FROM settings WHERE id = 1";
+            string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
+            using (var sReader = settingsCmd.ExecuteReader())
+            {
+                if (sReader.Read()) regexPattern = sReader.GetString(0);
+            }
+
+            if (!Regex.IsMatch(req.Password, regexPattern))
+            {
+                return BadRequest(new { error = "Password does not meet complexity requirements." });
+            }
+
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "UPDATE users SET password = @pass, needs_password_change = 1 WHERE id = @id";
             cmd.Parameters.AddWithValue("@pass", CryptoHelper.EncryptRandom(req.Password));
@@ -764,5 +941,127 @@ namespace OLRTLabSim.Controllers
             if (rows == 0) return NotFound();
             return Ok(new { success = true });
         }
-    }
+
+        [Authorize(Roles = "admin")]
+        [HttpGet("settings")]
+        public IActionResult GetSettings()
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT * FROM settings WHERE id = 1";
+            using var reader = cmd.ExecuteReader();
+            if (reader.Read())
+            {
+                return Ok(new SettingsModel
+                {
+                    SessionTimeoutMinutes = reader.GetInt64(reader.GetOrdinal("session_timeout_minutes")),
+                    PasswordComplexityRegex = reader.GetString(reader.GetOrdinal("password_complexity_regex")),
+                    PasswordHistoryCount = reader.GetInt64(reader.GetOrdinal("password_history_count")),
+                    AdEnabled = reader.GetInt64(reader.GetOrdinal("ad_enabled")),
+                    AdServer = reader.GetString(reader.GetOrdinal("ad_server")),
+                    AdDomain = reader.GetString(reader.GetOrdinal("ad_domain")),
+                    AdServiceUser = reader.GetString(reader.GetOrdinal("ad_service_user")),
+                    AdServicePassword = reader.GetString(reader.GetOrdinal("ad_service_password")),
+                    AdGroupAdmin = reader.GetString(reader.GetOrdinal("ad_group_admin")),
+                    AdGroupRw = reader.GetString(reader.GetOrdinal("ad_group_rw")),
+                    AdGroupRo = reader.GetString(reader.GetOrdinal("ad_group_ro"))
+                });
+            }
+            return NotFound();
+        }
+
+        [Authorize(Roles = "admin")]
+        [HttpPut("settings")]
+        public IActionResult UpdateSettings([FromBody] SettingsModel req)
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"UPDATE settings SET
+                session_timeout_minutes = @p1,
+                password_complexity_regex = @p2,
+                password_history_count = @p3,
+                ad_enabled = @p4,
+                ad_server = @p5,
+                ad_domain = @p6,
+                ad_service_user = @p7,
+                ad_service_password = @p8,
+                ad_group_admin = @p9,
+                ad_group_rw = @p10,
+                ad_group_ro = @p11
+                WHERE id = 1";
+            cmd.Parameters.AddWithValue("@p1", req.SessionTimeoutMinutes);
+            cmd.Parameters.AddWithValue("@p2", req.PasswordComplexityRegex ?? "");
+            cmd.Parameters.AddWithValue("@p3", req.PasswordHistoryCount);
+            cmd.Parameters.AddWithValue("@p4", req.AdEnabled);
+            cmd.Parameters.AddWithValue("@p5", req.AdServer ?? "");
+            cmd.Parameters.AddWithValue("@p6", req.AdDomain ?? "");
+            cmd.Parameters.AddWithValue("@p7", req.AdServiceUser ?? "");
+            cmd.Parameters.AddWithValue("@p8", req.AdServicePassword ?? "");
+            cmd.Parameters.AddWithValue("@p9", req.AdGroupAdmin ?? "");
+            cmd.Parameters.AddWithValue("@p10", req.AdGroupRw ?? "");
+            cmd.Parameters.AddWithValue("@p11", req.AdGroupRo ?? "");
+            cmd.ExecuteNonQuery();
+            return Ok(new { success = true });
+        }
+
+        [Authorize(Roles = "admin")]
+        [HttpGet("ad-groups")]
+        public IActionResult GetAdGroups()
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT ad_server, ad_domain, ad_service_user, ad_service_password FROM settings WHERE id = 1";
+
+            string adServer = "", adDomain = "", adUser = "", adPass = "";
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    adServer = reader.GetString(0);
+                    adDomain = reader.GetString(1);
+                    adUser = reader.GetString(2);
+                    adPass = reader.GetString(3);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(adServer) || string.IsNullOrWhiteSpace(adDomain))
+            {
+                return BadRequest(new { error = "AD Server and Domain must be configured first." });
+            }
+
+            var groups = new List<string>();
+            try
+            {
+                using var ldap = new LdapConnection(new LdapDirectoryIdentifier(adServer));
+                if (!string.IsNullOrWhiteSpace(adUser) && !string.IsNullOrWhiteSpace(adPass))
+                {
+                    string fqdn = adUser.Contains("@") ? adUser : $"{adUser}@{adDomain}";
+                    ldap.Credential = new NetworkCredential(fqdn, adPass);
+                    ldap.AuthType = AuthType.Basic;
+                }
+                ldap.Bind();
+
+                string searchFilter = "(objectClass=group)";
+                string baseDn = adDomain.Replace(".", ",DC=").Insert(0, "DC=");
+                var searchRequest = new SearchRequest(
+                    baseDn,
+                    searchFilter,
+                    System.DirectoryServices.Protocols.SearchScope.Subtree,
+                    "distinguishedName"
+                );
+
+                // For large domains, a page result request control would be needed, but we simplify here.
+                var searchResponse = (SearchResponse)ldap.SendRequest(searchRequest);
+                foreach (SearchResultEntry entry in searchResponse.Entries)
+                {
+                    groups.Add(entry.DistinguishedName);
+                }
+                return Ok(groups);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { error = $"Failed to connect or query AD: {ex.Message}" });
+            }
+        }
+}
 }

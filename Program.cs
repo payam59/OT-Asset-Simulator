@@ -137,7 +137,17 @@ try
         await context.Response.SendFileAsync("Pages/bacnet_status.html");
     });
 
-    app.Run();
+
+    app.MapGet("/settings", async context =>
+    {
+        if (!context.User.IsInRole("admin"))
+        {
+            context.Response.Redirect("/");
+            return;
+        }
+        await context.Response.SendFileAsync("Pages/settings.html");
+    });
+app.Run();
 }
 catch (System.Exception ex)
 {

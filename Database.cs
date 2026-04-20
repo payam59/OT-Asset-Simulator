@@ -100,6 +100,61 @@ namespace OLRTLabSim.Data
                             needs_password_change INTEGER DEFAULT 1
                         )";
                     cmd.ExecuteNonQuery();
+
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS password_history (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            user_id INTEGER NOT NULL,
+                            password TEXT NOT NULL,
+                            changed_at REAL NOT NULL,
+                            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                        )";
+                    cmd.ExecuteNonQuery();
+
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS settings (
+                            id INTEGER PRIMARY KEY CHECK (id = 1),
+                            session_timeout_minutes INTEGER DEFAULT 60,
+                            password_complexity_regex TEXT DEFAULT '^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$',
+                            password_history_count INTEGER DEFAULT 3,
+                            ad_enabled INTEGER DEFAULT 0,
+                            ad_server TEXT DEFAULT '',
+                            ad_domain TEXT DEFAULT '',
+                            ad_service_user TEXT DEFAULT '',
+                            ad_service_password TEXT DEFAULT '',
+                            ad_group_admin TEXT DEFAULT '',
+                            ad_group_rw TEXT DEFAULT '',
+                            ad_group_ro TEXT DEFAULT ''
+                        )";
+                    cmd.ExecuteNonQuery();
+                }
+
+                // Alter settings table if necessary
+                using (var cmd = conn.CreateCommand())
+                {
+                    List<string> setCols = new List<string>();
+                    cmd.CommandText = "PRAGMA table_info(settings)";
+                    using (var r = cmd.ExecuteReader()) { while(r.Read()) setCols.Add(r["name"].ToString()); }
+                    if (!setCols.Contains("ad_service_user")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN ad_service_user TEXT DEFAULT ''";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("ad_service_password")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN ad_service_password TEXT DEFAULT ''";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+                // Seed default settings if they don't exist
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "SELECT COUNT(*) FROM settings WHERE id = 1";
+                    var count = Convert.ToInt64(cmd.ExecuteScalar());
+                    if (count == 0)
+                    {
+                        cmd.CommandText = "INSERT INTO settings (id) VALUES (1)";
+                        cmd.ExecuteNonQuery();
+                    }
                 }
 
                 // Seed default admin user if it doesn't exist
