@@ -120,11 +120,29 @@ namespace OLRTLabSim.Data
                             ad_enabled INTEGER DEFAULT 0,
                             ad_server TEXT DEFAULT '',
                             ad_domain TEXT DEFAULT '',
+                            ad_service_user TEXT DEFAULT '',
+                            ad_service_password TEXT DEFAULT '',
                             ad_group_admin TEXT DEFAULT '',
                             ad_group_rw TEXT DEFAULT '',
                             ad_group_ro TEXT DEFAULT ''
                         )";
                     cmd.ExecuteNonQuery();
+                }
+
+                // Alter settings table if necessary
+                using (var cmd = conn.CreateCommand())
+                {
+                    List<string> setCols = new List<string>();
+                    cmd.CommandText = "PRAGMA table_info(settings)";
+                    using (var r = cmd.ExecuteReader()) { while(r.Read()) setCols.Add(r["name"].ToString()); }
+                    if (!setCols.Contains("ad_service_user")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN ad_service_user TEXT DEFAULT ''";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("ad_service_password")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN ad_service_password TEXT DEFAULT ''";
+                        cmd.ExecuteNonQuery();
+                    }
                 }
 
                 // Seed default settings if they don't exist

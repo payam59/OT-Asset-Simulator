@@ -54,22 +54,40 @@
                     <div class="col-md-6">
                         <label class="form-label">AD Domain</label>
                         <input type="text" id="adDomain" class="form-control" placeholder="example.com">
+                        <small class="text-muted">e.g., example.com. Users will authenticate as username@example.com</small>
+                    </div>
+                </div>
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">AD Service User</label>
+                        <input type="text" id="adServiceUser" class="form-control" placeholder="service_account@example.com">
+                        <small class="text-muted">Used to query AD for groups.</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">AD Service Password</label>
+                        <input type="password" id="adServicePassword" class="form-control" placeholder="Password">
                     </div>
                 </div>
 
-                <h6 class="mt-4 mb-3 text-muted">Role Mapping (AD Groups)</h6>
+                <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
+                    <h6 class="text-muted mb-0">Role Mapping (AD Groups)</h6>
+                    <button class="btn btn-sm btn-outline-primary" onclick="loadAdGroups()">
+                        <i class="fas fa-sync-alt me-1"></i>Load Groups from AD
+                    </button>
+                </div>
+                <datalist id="adGroupsList"></datalist>
                 <div class="row mb-3">
                     <div class="col-md-4">
                         <label class="form-label">Admin Group</label>
-                        <input type="text" id="adGroupAdmin" class="form-control" placeholder="CN=LabAdmins,OU=Groups,DC=example,DC=com">
+                        <input list="adGroupsList" type="text" id="adGroupAdmin" class="form-control" placeholder="Search groups...">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Read/Write Group</label>
-                        <input type="text" id="adGroupRw" class="form-control" placeholder="CN=LabOperators,OU=Groups,DC=example,DC=com">
+                        <input list="adGroupsList" type="text" id="adGroupRw" class="form-control" placeholder="Search groups...">
                     </div>
                     <div class="col-md-4">
                         <label class="form-label">Read-Only Group</label>
-                        <input type="text" id="adGroupRo" class="form-control" placeholder="CN=LabGuests,OU=Groups,DC=example,DC=com">
+                        <input list="adGroupsList" type="text" id="adGroupRo" class="form-control" placeholder="Search groups...">
                     </div>
                 </div>
             </div>
@@ -86,15 +104,17 @@
                 const res = await fetch('/api/auth/settings');
                 if (res.ok) {
                     const data = await res.json();
-                    document.getElementById('sessionTimeout').value = data.sessionTimeoutMinutes;
-                    document.getElementById('passwordRegex').value = data.passwordComplexityRegex;
-                    document.getElementById('passwordHistory').value = data.passwordHistoryCount;
-                    document.getElementById('adEnabled').checked = data.adEnabled === 1;
-                    document.getElementById('adServer').value = data.adServer;
-                    document.getElementById('adDomain').value = data.adDomain;
-                    document.getElementById('adGroupAdmin').value = data.adGroupAdmin;
-                    document.getElementById('adGroupRw').value = data.adGroupRw;
-                    document.getElementById('adGroupRo').value = data.adGroupRo;
+                    document.getElementById('sessionTimeout').value = data.session_timeout_minutes ?? 60;
+                    document.getElementById('passwordRegex').value = data.password_complexity_regex ?? "^(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d@$!%*#?&]{8,}$";
+                    document.getElementById('passwordHistory').value = data.password_history_count ?? 3;
+                    document.getElementById('adEnabled').checked = data.ad_enabled === 1;
+                    document.getElementById('adServer').value = data.ad_server ?? "";
+                    document.getElementById('adDomain').value = data.ad_domain ?? "";
+                    document.getElementById('adServiceUser').value = data.ad_service_user ?? "";
+                    document.getElementById('adServicePassword').value = data.ad_service_password ?? "";
+                    document.getElementById('adGroupAdmin').value = data.ad_group_admin ?? "";
+                    document.getElementById('adGroupRw').value = data.ad_group_rw ?? "";
+                    document.getElementById('adGroupRo').value = data.ad_group_ro ?? "";
                 } else if (res.status === 401 || res.status === 403) {
                     window.location.href = '/login';
                 }
@@ -111,6 +131,8 @@
                 AdEnabled: document.getElementById('adEnabled').checked ? 1 : 0,
                 AdServer: document.getElementById('adServer').value,
                 AdDomain: document.getElementById('adDomain').value,
+                AdServiceUser: document.getElementById('adServiceUser').value,
+                AdServicePassword: document.getElementById('adServicePassword').value,
                 AdGroupAdmin: document.getElementById('adGroupAdmin').value,
                 AdGroupRw: document.getElementById('adGroupRw').value,
                 AdGroupRo: document.getElementById('adGroupRo').value
@@ -126,6 +148,29 @@
                 alert('Settings saved successfully.');
             } else {
                 alert('Failed to save settings.');
+            }
+        }
+
+        async function loadAdGroups() {
+            try {
+                const res = await fetch('/api/auth/ad-groups');
+                if (res.ok) {
+                    const groups = await res.json();
+                    const datalist = document.getElementById('adGroupsList');
+                    datalist.innerHTML = '';
+                    groups.forEach(g => {
+                        const opt = document.createElement('option');
+                        opt.value = g;
+                        datalist.appendChild(opt);
+                    });
+                    alert(`Loaded ${groups.length} groups from AD.`);
+                } else {
+                    const data = await res.json();
+                    alert('Failed to load groups: ' + data.error);
+                }
+            } catch (err) {
+                alert('Error loading groups.');
+                console.error(err);
             }
         }
 

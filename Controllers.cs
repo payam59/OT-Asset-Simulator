@@ -638,13 +638,13 @@ namespace OLRTLabSim.Controllers
             {
                 if (sReader.Read())
                 {
-                    sessionTimeout = sReader.GetInt64(1);
-                    adEnabled = sReader.GetInt64(4) == 1;
-                    adServer = sReader.GetString(5);
-                    adDomain = sReader.GetString(6);
-                    adGroupAdmin = sReader.GetString(7);
-                    adGroupRw = sReader.GetString(8);
-                    adGroupRo = sReader.GetString(9);
+                    sessionTimeout = sReader.GetInt64(sReader.GetOrdinal("session_timeout_minutes"));
+                    adEnabled = sReader.GetInt64(sReader.GetOrdinal("ad_enabled")) == 1;
+                    adServer = sReader.GetString(sReader.GetOrdinal("ad_server"));
+                    adDomain = sReader.GetString(sReader.GetOrdinal("ad_domain"));
+                    adGroupAdmin = sReader.GetString(sReader.GetOrdinal("ad_group_admin"));
+                    adGroupRw = sReader.GetString(sReader.GetOrdinal("ad_group_rw"));
+                    adGroupRo = sReader.GetString(sReader.GetOrdinal("ad_group_ro"));
                 }
             }
 
@@ -954,15 +954,17 @@ namespace OLRTLabSim.Controllers
             {
                 return Ok(new SettingsModel
                 {
-                    SessionTimeoutMinutes = reader.GetInt64(1),
-                    PasswordComplexityRegex = reader.GetString(2),
-                    PasswordHistoryCount = reader.GetInt64(3),
-                    AdEnabled = reader.GetInt64(4),
-                    AdServer = reader.GetString(5),
-                    AdDomain = reader.GetString(6),
-                    AdGroupAdmin = reader.GetString(7),
-                    AdGroupRw = reader.GetString(8),
-                    AdGroupRo = reader.GetString(9)
+                    SessionTimeoutMinutes = reader.GetInt64(reader.GetOrdinal("session_timeout_minutes")),
+                    PasswordComplexityRegex = reader.GetString(reader.GetOrdinal("password_complexity_regex")),
+                    PasswordHistoryCount = reader.GetInt64(reader.GetOrdinal("password_history_count")),
+                    AdEnabled = reader.GetInt64(reader.GetOrdinal("ad_enabled")),
+                    AdServer = reader.GetString(reader.GetOrdinal("ad_server")),
+                    AdDomain = reader.GetString(reader.GetOrdinal("ad_domain")),
+                    AdServiceUser = reader.GetString(reader.GetOrdinal("ad_service_user")),
+                    AdServicePassword = reader.GetString(reader.GetOrdinal("ad_service_password")),
+                    AdGroupAdmin = reader.GetString(reader.GetOrdinal("ad_group_admin")),
+                    AdGroupRw = reader.GetString(reader.GetOrdinal("ad_group_rw")),
+                    AdGroupRo = reader.GetString(reader.GetOrdinal("ad_group_ro"))
                 });
             }
             return NotFound();
@@ -981,9 +983,11 @@ namespace OLRTLabSim.Controllers
                 ad_enabled = @p4,
                 ad_server = @p5,
                 ad_domain = @p6,
-                ad_group_admin = @p7,
-                ad_group_rw = @p8,
-                ad_group_ro = @p9
+                ad_service_user = @p7,
+                ad_service_password = @p8,
+                ad_group_admin = @p9,
+                ad_group_rw = @p10,
+                ad_group_ro = @p11
                 WHERE id = 1";
             cmd.Parameters.AddWithValue("@p1", req.SessionTimeoutMinutes);
             cmd.Parameters.AddWithValue("@p2", req.PasswordComplexityRegex ?? "");
@@ -991,11 +995,73 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@p4", req.AdEnabled);
             cmd.Parameters.AddWithValue("@p5", req.AdServer ?? "");
             cmd.Parameters.AddWithValue("@p6", req.AdDomain ?? "");
-            cmd.Parameters.AddWithValue("@p7", req.AdGroupAdmin ?? "");
-            cmd.Parameters.AddWithValue("@p8", req.AdGroupRw ?? "");
-            cmd.Parameters.AddWithValue("@p9", req.AdGroupRo ?? "");
+            cmd.Parameters.AddWithValue("@p7", req.AdServiceUser ?? "");
+            cmd.Parameters.AddWithValue("@p8", req.AdServicePassword ?? "");
+            cmd.Parameters.AddWithValue("@p9", req.AdGroupAdmin ?? "");
+            cmd.Parameters.AddWithValue("@p10", req.AdGroupRw ?? "");
+            cmd.Parameters.AddWithValue("@p11", req.AdGroupRo ?? "");
             cmd.ExecuteNonQuery();
             return Ok(new { success = true });
+        }
+
+        [Authorize(Roles = "admin")]
+        [HttpGet("ad-groups")]
+        public IActionResult GetAdGroups()
+        {
+            using var conn = Database.GetConnection();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "SELECT ad_server, ad_domain, ad_service_user, ad_service_password FROM settings WHERE id = 1";
+
+            string adServer = "", adDomain = "", adUser = "", adPass = "";
+            using (var reader = cmd.ExecuteReader())
+            {
+                if (reader.Read())
+                {
+                    adServer = reader.GetString(0);
+                    adDomain = reader.GetString(1);
+                    adUser = reader.GetString(2);
+                    adPass = reader.GetString(3);
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(adServer) || string.IsNullOrWhiteSpace(adDomain))
+            {
+                return BadRequest(new { error = "AD Server and Domain must be configured first." });
+            }
+
+            var groups = new List<string>();
+            try
+            {
+                using var ldap = new LdapConnection(new LdapDirectoryIdentifier(adServer));
+                if (!string.IsNullOrWhiteSpace(adUser) && !string.IsNullOrWhiteSpace(adPass))
+                {
+                    string fqdn = adUser.Contains("@") ? adUser : $"{adUser}@{adDomain}";
+                    ldap.Credential = new NetworkCredential(fqdn, adPass);
+                    ldap.AuthType = AuthType.Basic;
+                }
+                ldap.Bind();
+
+                string searchFilter = "(objectClass=group)";
+                string baseDn = adDomain.Replace(".", ",DC=").Insert(0, "DC=");
+                var searchRequest = new SearchRequest(
+                    baseDn,
+                    searchFilter,
+                    System.DirectoryServices.Protocols.SearchScope.Subtree,
+                    "distinguishedName"
+                );
+
+                // For large domains, a page result request control would be needed, but we simplify here.
+                var searchResponse = (SearchResponse)ldap.SendRequest(searchRequest);
+                foreach (SearchResultEntry entry in searchResponse.Entries)
+                {
+                    groups.Add(entry.DistinguishedName);
+                }
+                return Ok(groups);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { error = $"Failed to connect or query AD: {ex.Message}" });
+            }
         }
 }
 }

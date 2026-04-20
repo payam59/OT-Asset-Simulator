@@ -105,6 +105,8 @@ namespace OLRTLabSim.Models
         public long AdEnabled { get; set; }
         public string AdServer { get; set; }
         public string AdDomain { get; set; }
+        public string AdServiceUser { get; set; }
+        public string AdServicePassword { get; set; }
         public string AdGroupAdmin { get; set; }
         public string AdGroupRw { get; set; }
         public string AdGroupRo { get; set; }
