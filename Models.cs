@@ -110,6 +110,8 @@ namespace OLRTLabSim.Models
         public string AdGroupAdmin { get; set; }
         public string AdGroupRw { get; set; }
         public string AdGroupRo { get; set; }
+        public long EnableAuditLog { get; set; }
+        public long EnableAlarmLog { get; set; }
     }
 
     public class ChangePasswordRequest

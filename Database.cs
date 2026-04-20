@@ -6,7 +6,7 @@ using OLRTLabSim.Helpers;
 
 namespace OLRTLabSim.Data
 {
-    public static class Database
+    public static partial class Database
     {
         public static readonly string DbFile = "lab_assets.db";
         public static readonly string LogDir = "simulation_logs";
@@ -91,8 +91,21 @@ namespace OLRTLabSim.Data
                         )";
                     cmd.ExecuteNonQuery();
 
+
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS audit_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            action TEXT NOT NULL,
+                            username TEXT NOT NULL,
+                            details TEXT,
+                            ip_address TEXT,
+                            timestamp REAL NOT NULL
+                        )";
+                    cmd.ExecuteNonQuery();
+
                     cmd.CommandText = @"
                         CREATE TABLE IF NOT EXISTS users (
+
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             username TEXT UNIQUE NOT NULL,
                             password TEXT NOT NULL,
@@ -124,7 +137,9 @@ namespace OLRTLabSim.Data
                             ad_service_password TEXT DEFAULT '',
                             ad_group_admin TEXT DEFAULT '',
                             ad_group_rw TEXT DEFAULT '',
-                            ad_group_ro TEXT DEFAULT ''
+                            ad_group_ro TEXT DEFAULT '',
+                            enable_audit_log INTEGER DEFAULT 1,
+                            enable_alarm_log INTEGER DEFAULT 1
                         )";
                     cmd.ExecuteNonQuery();
                 }
@@ -143,9 +158,19 @@ namespace OLRTLabSim.Data
                         cmd.CommandText = "ALTER TABLE settings ADD COLUMN ad_service_password TEXT DEFAULT ''";
                         cmd.ExecuteNonQuery();
                     }
+
+                    if (!setCols.Contains("enable_audit_log")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN enable_audit_log INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("enable_alarm_log")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN enable_alarm_log INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
                 }
 
                 // Seed default settings if they don't exist
+
                 using (var cmd = conn.CreateCommand())
                 {
                     cmd.CommandText = "SELECT COUNT(*) FROM settings WHERE id = 1";
