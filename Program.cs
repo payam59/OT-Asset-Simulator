@@ -147,6 +147,18 @@ try
         }
         await context.Response.SendFileAsync("Pages/settings.html");
     });
+
+    app.MapGet("/logs", async context =>
+    {
+        if (!context.User.IsInRole("admin"))
+        {
+            context.Response.Redirect("/");
+            return;
+        }
+        context.Response.ContentType = "text/html";
+        await context.Response.SendFileAsync("Pages/logs.html");
+    });
+
 app.Run();
 }
 catch (System.Exception ex)

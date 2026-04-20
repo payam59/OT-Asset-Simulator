@@ -9,6 +9,8 @@ namespace OLRTLabSim.Data
     public static partial class Database
     {
         public static readonly string DbFile = "lab_assets.db";
+        public static readonly string AuditDbFile = "auditlog.db";
+        public static readonly string EventsDbFile = "eventslog.db";
         public static readonly string LogDir = "simulation_logs";
 
         public static void InitDb()
@@ -16,6 +18,7 @@ namespace OLRTLabSim.Data
             if (!Directory.Exists(LogDir))
                 Directory.CreateDirectory(LogDir);
 
+            // Initialize main database
             using (var conn = GetConnection())
             {
                 using (var cmd = conn.CreateCommand())
@@ -91,17 +94,6 @@ namespace OLRTLabSim.Data
                         )";
                     cmd.ExecuteNonQuery();
 
-
-                    cmd.CommandText = @"
-                        CREATE TABLE IF NOT EXISTS audit_logs (
-                            id INTEGER PRIMARY KEY AUTOINCREMENT,
-                            action TEXT NOT NULL,
-                            username TEXT NOT NULL,
-                            details TEXT,
-                            ip_address TEXT,
-                            timestamp REAL NOT NULL
-                        )";
-                    cmd.ExecuteNonQuery();
 
                     cmd.CommandText = @"
                         CREATE TABLE IF NOT EXISTS users (
@@ -261,11 +253,61 @@ namespace OLRTLabSim.Data
                     }
                 }
             }
+
+            // Initialize audit log database
+            using (var conn = GetAuditConnection())
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS audit_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            action TEXT NOT NULL,
+                            username TEXT NOT NULL,
+                            details TEXT,
+                            ip_address TEXT,
+                            timestamp REAL NOT NULL
+                        )";
+                    cmd.ExecuteNonQuery();
+                }
+            }
+
+            // Initialize event log database
+            using (var conn = GetEventsConnection())
+            {
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = @"
+                        CREATE TABLE IF NOT EXISTS events_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            asset_name TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            reason TEXT,
+                            details TEXT,
+                            timestamp REAL NOT NULL
+                        )";
+                    cmd.ExecuteNonQuery();
+                }
+            }
         }
 
         public static SqliteConnection GetConnection()
         {
             var conn = new SqliteConnection($"Data Source={DbFile};");
+            conn.Open();
+            return conn;
+        }
+
+        public static SqliteConnection GetAuditConnection()
+        {
+            var conn = new SqliteConnection($"Data Source={AuditDbFile};");
+            conn.Open();
+            return conn;
+        }
+
+        public static SqliteConnection GetEventsConnection()
+        {
+            var conn = new SqliteConnection($"Data Source={EventsDbFile};");
             conn.Open();
             return conn;
         }

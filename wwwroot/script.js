@@ -622,6 +622,8 @@ async function fetchMe() {
             if (userRole === 'admin') {
                 const btn = document.getElementById('manageUsersBtn');
                 if (btn) btn.classList.remove('d-none');
+                const logsBtn = document.getElementById('viewLogsBtn');
+                if (logsBtn) logsBtn.classList.remove('d-none');
             }
             if (userRole === 'read_only') {
                 document.querySelectorAll('.btn-primary[data-bs-target="#addModal"]').forEach(el => el.classList.add('d-none'));
