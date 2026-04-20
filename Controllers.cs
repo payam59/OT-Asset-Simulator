@@ -623,6 +623,7 @@ namespace OLRTLabSim.Controllers
 
     [ApiController]
     [Route("api/auth")]
+
     public class AuthController : ControllerBase
     {
         [HttpPost("login")]
@@ -755,6 +756,7 @@ namespace OLRTLabSim.Controllers
 
                 await HttpContext.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, new ClaimsPrincipal(claimsIdentity), authProperties);
 
+                Database.LogAudit("USER_LOGIN", req.Username, "User logged in", HttpContext.Connection.RemoteIpAddress?.ToString());
                 return Ok(new { success = true, role = accessLevel, needs_password_change = needsChange == 1 });
             }
 
@@ -766,6 +768,7 @@ namespace OLRTLabSim.Controllers
         public async Task<IActionResult> Logout()
         {
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            Database.LogAudit("USER_LOGOUT", User?.Identity?.Name ?? "Unknown", $"User logged out", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
         }
 
@@ -848,6 +851,7 @@ namespace OLRTLabSim.Controllers
             updateCmd.ExecuteNonQuery();
 
             await HttpContext.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+            Database.LogAudit("USER_LOGOUT", User?.Identity?.Name ?? "Unknown", $"User logged out", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
         }
 
@@ -911,6 +915,7 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@pass", CryptoHelper.EncryptRandom(req.Password));
             cmd.Parameters.AddWithValue("@access", CryptoHelper.EncryptDeterministic(req.AccessLevel));
             cmd.ExecuteNonQuery();
+            Database.LogAudit("USER_CREATE", User?.Identity?.Name ?? "Unknown", $"Created user {req.Username}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
         }
 
@@ -939,6 +944,7 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@id", id);
             int rows = cmd.ExecuteNonQuery();
             if (rows == 0) return NotFound();
+            Database.LogAudit("USER_RESET", User?.Identity?.Name ?? "Unknown", $"Reset password for user ID {id}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
         }
 
@@ -964,7 +970,9 @@ namespace OLRTLabSim.Controllers
                     AdServicePassword = reader.GetString(reader.GetOrdinal("ad_service_password")),
                     AdGroupAdmin = reader.GetString(reader.GetOrdinal("ad_group_admin")),
                     AdGroupRw = reader.GetString(reader.GetOrdinal("ad_group_rw")),
-                    AdGroupRo = reader.GetString(reader.GetOrdinal("ad_group_ro"))
+                    AdGroupRo = reader.GetString(reader.GetOrdinal("ad_group_ro")),
+                    EnableAuditLog = reader.GetInt64(reader.GetOrdinal("enable_audit_log")),
+                    EnableAlarmLog = reader.GetInt64(reader.GetOrdinal("enable_alarm_log"))
                 });
             }
             return NotFound();
@@ -987,7 +995,7 @@ namespace OLRTLabSim.Controllers
                 ad_service_password = @p8,
                 ad_group_admin = @p9,
                 ad_group_rw = @p10,
-                ad_group_ro = @p11
+                ad_group_ro = @p11, enable_audit_log = @p12, enable_alarm_log = @p13
                 WHERE id = 1";
             cmd.Parameters.AddWithValue("@p1", req.SessionTimeoutMinutes);
             cmd.Parameters.AddWithValue("@p2", req.PasswordComplexityRegex ?? "");
@@ -1000,7 +1008,10 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@p9", req.AdGroupAdmin ?? "");
             cmd.Parameters.AddWithValue("@p10", req.AdGroupRw ?? "");
             cmd.Parameters.AddWithValue("@p11", req.AdGroupRo ?? "");
+            cmd.Parameters.AddWithValue("@p12", req.EnableAuditLog);
+            cmd.Parameters.AddWithValue("@p13", req.EnableAlarmLog);
             cmd.ExecuteNonQuery();
+            Database.LogAudit("SETTINGS_UPDATE", User?.Identity?.Name ?? "Unknown", $"Updated system settings", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
         }
 

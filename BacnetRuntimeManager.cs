@@ -438,7 +438,9 @@ namespace OLRTLabSim.Services
             {
                 bacnet_installed = Installed,
                 bbmd_status = _bbmdStatus,
-                object_count = _objectIndex.Count
+                object_count = _objectIndex.Count,
+                running_bbmd_ids = _bbmdLifecycles.Keys.ToList(),
+                registered_objects = _objectIndex.Values.ToList()
             };
         }
     }
