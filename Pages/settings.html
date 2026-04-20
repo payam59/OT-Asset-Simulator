@@ -131,6 +131,8 @@
                     document.getElementById('adGroupAdmin').value = data.ad_group_admin ?? "";
                     document.getElementById('adGroupRw').value = data.ad_group_rw ?? "";
                     document.getElementById('adGroupRo').value = data.ad_group_ro ?? "";
+                    document.getElementById('enableAuditLog').checked = data.enable_audit_log === 1;
+                    document.getElementById('enableAlarmLog').checked = data.enable_alarm_log === 1;
                 } else if (res.status === 401 || res.status === 403) {
                     window.location.href = '/login';
                 }
@@ -151,7 +153,9 @@
                 AdServicePassword: document.getElementById('adServicePassword').value,
                 AdGroupAdmin: document.getElementById('adGroupAdmin').value,
                 AdGroupRw: document.getElementById('adGroupRw').value,
-                AdGroupRo: document.getElementById('adGroupRo').value
+                AdGroupRo: document.getElementById('adGroupRo').value,
+                EnableAuditLog: document.getElementById('enableAuditLog').checked ? 1 : 0,
+                EnableAlarmLog: document.getElementById('enableAlarmLog').checked ? 1 : 0
             };
 
             const res = await fetch('/api/auth/settings', {

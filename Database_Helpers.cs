@@ -12,9 +12,9 @@ namespace OLRTLabSim.Data
             {
                 if (!Directory.Exists(LogDir))
                     Directory.CreateDirectory(LogDir);
-                using var conn = GetConnection();
 
-                // Check if audit logs are enabled
+                // Check if audit logs are enabled in main DB
+                using var conn = GetConnection();
                 using var checkCmd = conn.CreateCommand();
                 checkCmd.CommandText = "SELECT enable_audit_log FROM settings WHERE id = 1";
                 var result = checkCmd.ExecuteScalar();
@@ -23,7 +23,8 @@ namespace OLRTLabSim.Data
                     return; // Audit logs disabled
                 }
 
-                using var cmd = conn.CreateCommand();
+                using var auditConn = GetAuditConnection();
+                using var cmd = auditConn.CreateCommand();
                 cmd.CommandText = @"
                     INSERT INTO audit_logs (action, username, details, ip_address, timestamp)
                     VALUES (@action, @user, @details, @ip, @ts)";
@@ -46,9 +47,9 @@ namespace OLRTLabSim.Data
             {
                 if (!Directory.Exists(LogDir))
                     Directory.CreateDirectory(LogDir);
-                using var conn = GetConnection();
 
                 // Check if alarm logs are enabled
+                using var conn = GetConnection();
                 using var checkCmd = conn.CreateCommand();
                 checkCmd.CommandText = "SELECT enable_alarm_log FROM settings WHERE id = 1";
                 var result = checkCmd.ExecuteScalar();
@@ -57,13 +58,17 @@ namespace OLRTLabSim.Data
                     return; // Alarm logs disabled
                 }
 
-                string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                string logLine = $"[{timestamp}] ASSET: {assetName} | STATUS: {status} | REASON: {reason} | DETAILS: {details}{Environment.NewLine}";
-
-                string dateStr = DateTime.Now.ToString("yyyy-MM-dd");
-                string filename = Path.Combine(LogDir, $"alarms_{dateStr}.log");
-
-                File.AppendAllText(filename, logLine);
+                using var eventsConn = GetEventsConnection();
+                using var cmd = eventsConn.CreateCommand();
+                cmd.CommandText = @"
+                    INSERT INTO events_logs (asset_name, status, reason, details, timestamp)
+                    VALUES (@asset, @status, @reason, @details, @ts)";
+                cmd.Parameters.AddWithValue("@asset", assetName);
+                cmd.Parameters.AddWithValue("@status", status);
+                cmd.Parameters.AddWithValue("@reason", reason ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@details", details ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@ts", DateTimeOffset.UtcNow.ToUnixTimeSeconds());
+                cmd.ExecuteNonQuery();
             }
             catch (Exception ex)
             {
