@@ -186,10 +186,10 @@
             const modbus = await modbusRes.json();
             const dnp3 = await dnp3Res.json();
 
-            document.getElementById('bac0Installed').textContent = bacnet.bac0_installed ? 'Yes' : 'No';
-            document.getElementById('bac0Installed').className = bacnet.bac0_installed ? 'fs-4 fw-bold text-success' : 'fs-4 fw-bold text-danger';
+            document.getElementById('bac0Installed').textContent = bacnet.bacnet_installed ? 'Yes' : 'No';
+            document.getElementById('bac0Installed').className = bacnet.bacnet_installed ? 'fs-4 fw-bold text-success' : 'fs-4 fw-bold text-danger';
             document.getElementById('runningBbmds').textContent = (bacnet.running_bbmd_ids || []).length;
-            document.getElementById('registeredObjects').textContent = (bacnet.registered_object_names || []).length;
+            document.getElementById('registeredObjects').textContent = (bacnet.registered_objects || []).length;
 
             const importErrorBox = document.getElementById('bacnetImportError');
             if (bacnet.bac0_import_error) {

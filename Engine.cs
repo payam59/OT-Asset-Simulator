@@ -280,6 +280,7 @@ namespace OLRTLabSim.Engine
                                     cmd.Parameters.AddWithValue("@now", now);
                                     cmd.ExecuteNonQuery();
                                 }
+                                Database.LogAlarmEventToFile(asset.Name, "IN_ALARM", alarmMsg, $"Asset {asset.Name} went into alarm. Current value: {asset.CurrentValue}");
                             }
                             else
                             {
@@ -290,6 +291,7 @@ namespace OLRTLabSim.Engine
                                     cmd.Parameters.AddWithValue("@id", asset.Id);
                                     cmd.ExecuteNonQuery();
                                 }
+                                Database.LogAlarmEventToFile(asset.Name, "CLEARED", "Alarm conditions no longer met", $"Asset {asset.Name} alarm cleared. Current value: {asset.CurrentValue}");
                             }
 
                             alarmChanged = true;
