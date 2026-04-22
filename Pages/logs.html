@@ -161,7 +161,22 @@
         }
 
         // Check if admin on load
+        function initDates() {
+            const now = new Date();
+            const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+            const endOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 0);
+
+            const formatDateTime = (date) => {
+                const pad = (num) => num.toString().padStart(2, '0');
+                return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+            };
+
+            document.getElementById('logStartDate').value = formatDateTime(startOfDay);
+            document.getElementById('logEndDate').value = formatDateTime(endOfDay);
+        }
+
         async function checkRole() {
+            initDates();
             try {
                 const res = await fetch('/api/auth/me');
                 if (res.ok) {
