@@ -619,6 +619,62 @@ namespace OLRTLabSim.Controllers
         [Authorize]
         [HttpGet("dnp3/status")]
         public IActionResult GetDnp3Status() => Ok(_dnp3Manager.Status());
+
+        [Authorize(Roles = "admin")]
+        [HttpGet("logs")]
+        public IActionResult GetLogs([FromQuery] string type, [FromQuery] string search = "", [FromQuery] double? startDate = null, [FromQuery] double? endDate = null)
+        {
+            if (type != "audit" && type != "events")
+            {
+                return BadRequest(new { error = "Invalid log type specified." });
+            }
+
+            using var conn = type == "audit" ? Database.GetAuditConnection() : Database.GetEventsConnection();
+            using var cmd = conn.CreateCommand();
+
+            var conditions = new List<string>();
+            if (startDate.HasValue)
+            {
+                conditions.Add("timestamp >= @startDate");
+                cmd.Parameters.AddWithValue("@startDate", startDate.Value);
+            }
+            if (endDate.HasValue)
+            {
+                conditions.Add("timestamp <= @endDate");
+                cmd.Parameters.AddWithValue("@endDate", endDate.Value);
+            }
+
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                if (type == "audit")
+                {
+                    conditions.Add("(action LIKE @search OR username LIKE @search OR details LIKE @search OR ip_address LIKE @search)");
+                }
+                else
+                {
+                    conditions.Add("(asset_name LIKE @search OR status LIKE @search OR reason LIKE @search OR details LIKE @search)");
+                }
+                cmd.Parameters.AddWithValue("@search", $"%{search}%");
+            }
+
+            var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
+            var tableName = type == "audit" ? "audit_logs" : "events_logs";
+            cmd.CommandText = $"SELECT * FROM {tableName} {whereClause} ORDER BY timestamp DESC";
+
+            var results = new List<Dictionary<string, object>>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var row = new Dictionary<string, object>();
+                for (int i = 0; i < reader.FieldCount; i++)
+                {
+                    row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                }
+                results.Add(row);
+            }
+
+            return Ok(results);
+        }
     }
 
     [ApiController]
@@ -1075,60 +1131,6 @@ namespace OLRTLabSim.Controllers
             }
         }
 
-        [Authorize(Roles = "admin")]
-        [HttpGet("logs")]
-        public IActionResult GetLogs([FromQuery] string type, [FromQuery] string search = "", [FromQuery] double? startDate = null, [FromQuery] double? endDate = null)
-        {
-            if (type != "audit" && type != "events")
-            {
-                return BadRequest(new { error = "Invalid log type specified." });
-            }
 
-            using var conn = type == "audit" ? Database.GetAuditConnection() : Database.GetEventsConnection();
-            using var cmd = conn.CreateCommand();
-
-            var conditions = new List<string>();
-            if (startDate.HasValue)
-            {
-                conditions.Add("timestamp >= @startDate");
-                cmd.Parameters.AddWithValue("@startDate", startDate.Value);
-            }
-            if (endDate.HasValue)
-            {
-                conditions.Add("timestamp <= @endDate");
-                cmd.Parameters.AddWithValue("@endDate", endDate.Value);
-            }
-
-            if (!string.IsNullOrWhiteSpace(search))
-            {
-                if (type == "audit")
-                {
-                    conditions.Add("(action LIKE @search OR username LIKE @search OR details LIKE @search OR ip_address LIKE @search)");
-                }
-                else
-                {
-                    conditions.Add("(asset_name LIKE @search OR status LIKE @search OR reason LIKE @search OR details LIKE @search)");
-                }
-                cmd.Parameters.AddWithValue("@search", $"%{search}%");
-            }
-
-            var whereClause = conditions.Count > 0 ? "WHERE " + string.Join(" AND ", conditions) : "";
-            var tableName = type == "audit" ? "audit_logs" : "events_logs";
-            cmd.CommandText = $"SELECT * FROM {tableName} {whereClause} ORDER BY timestamp DESC";
-
-            var results = new List<Dictionary<string, object>>();
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                var row = new Dictionary<string, object>();
-                for (int i = 0; i < reader.FieldCount; i++)
-                {
-                    row[reader.GetName(i)] = reader.IsDBNull(i) ? null : reader.GetValue(i);
-                }
-                results.Add(row);
-            }
-
-            return Ok(results);
-        }
     }
 }
