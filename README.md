@@ -13,6 +13,10 @@ OT-Asset-Simulator is a versatile Operational Technology (OT) asset simulation p
 - **User Authentication & Role-Based Access:** Secure login system supporting Admin, Read/Write, and Read-Only roles.
   - **AES Encryption:** All user data (username, access level, and password) is securely encrypted within the database using AES-256 (with a 512-bit derived master key parameter configuration for maximal security compliance).
 - **Alarm Management:** Active tracking and logging of asset alarm states and events.
+- **Comprehensive Logging System:**
+  - **Audit Logs:** Tracks user actions like logins, logouts, user creations, and setting updates.
+  - **Event Logs:** Records system events and asset state changes, particularly alarm triggers.
+  - **Admin Dashboard:** A dedicated logs view to filter and search through both audit and event logs.
 
 ## Prerequisites
 
