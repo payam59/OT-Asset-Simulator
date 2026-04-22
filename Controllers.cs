@@ -233,6 +233,7 @@ namespace OLRTLabSim.Controllers
                 PushToRuntime(asset);
             }
 
+            Database.LogAudit("ASSET_OVERRIDE", User?.Identity?.Name ?? "Unknown", $"Manually overrode asset {name} to {value}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { message = $"{name} manually overridden to {value}" });
         }
 
@@ -247,6 +248,7 @@ namespace OLRTLabSim.Controllers
             if (cmd.ExecuteNonQuery() == 0)
                 return NotFound(new { detail = "Asset not found" });
 
+            Database.LogAudit("ASSET_RELEASE", User?.Identity?.Name ?? "Unknown", $"Released asset {name} to automation", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { message = $"{name} released to automation" });
         }
 
@@ -345,6 +347,7 @@ namespace OLRTLabSim.Controllers
                 await _dnp3Manager.RegisterAsset(asset);
 
             PushToRuntime(asset);
+            Database.LogAudit("ASSET_CREATE", User?.Identity?.Name ?? "Unknown", $"Created asset {asset.Name}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { message = "Asset added successfully" });
         }
 
@@ -450,6 +453,7 @@ namespace OLRTLabSim.Controllers
             var updated = LoadAssetByName(name);
             if (updated != null) PushToRuntime(updated);
 
+            Database.LogAudit("ASSET_UPDATE", User?.Identity?.Name ?? "Unknown", $"Updated asset {name}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { message = "Asset updated successfully" });
         }
 
@@ -478,6 +482,7 @@ namespace OLRTLabSim.Controllers
             cmd.CommandText = "DELETE FROM assets WHERE name = @name";
             cmd.ExecuteNonQuery();
 
+            Database.LogAudit("ASSET_DELETE", User?.Identity?.Name ?? "Unknown", $"Deleted asset {name}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { message = "Asset deleted" });
         }
 
@@ -682,6 +687,49 @@ namespace OLRTLabSim.Controllers
 
     public class AuthController : ControllerBase
     {
+        private LdapConnection CreateLdapConnection(string adServer)
+        {
+            string host = adServer;
+            bool useSsl = false;
+            if (adServer.StartsWith("ldaps://", StringComparison.OrdinalIgnoreCase))
+            {
+                useSsl = true;
+                host = adServer.Substring(8);
+            }
+            else if (adServer.StartsWith("ldap://", StringComparison.OrdinalIgnoreCase))
+            {
+                host = adServer.Substring(7);
+            }
+
+            var ldap = new LdapConnection(new LdapDirectoryIdentifier(host));
+            ldap.SessionOptions.ProtocolVersion = 3;
+            if (useSsl)
+            {
+                ldap.SessionOptions.SecureSocketLayer = true;
+                ldap.SessionOptions.VerifyServerCertificate = (conn, cert) => true;
+            }
+            return ldap;
+        }
+
+        [Authorize(Roles = "admin")]
+        [HttpPost("test-ad")]
+        public IActionResult TestAdConnection([FromBody] SettingsModel req)
+        {
+            try
+            {
+                using var ldap = CreateLdapConnection(req.AdServer);
+                string fqdn = req.AdServiceUser.Contains("@") ? req.AdServiceUser : $"{req.AdServiceUser}@{req.AdDomain}";
+                ldap.Credential = new NetworkCredential(fqdn, req.AdServicePassword);
+                ldap.AuthType = AuthType.Basic;
+                ldap.Bind();
+                return Ok(new { success = true, message = "Successfully connected and bound to AD." });
+            }
+            catch (Exception ex)
+            {
+                return Ok(new { success = false, error = ex.Message + (ex.InnerException != null ? " -> " + ex.InnerException.Message : "") });
+            }
+        }
+
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginRequest req)
         {
@@ -713,8 +761,8 @@ namespace OLRTLabSim.Controllers
             {
                 try
                 {
-                    string fqdn = $"{req.Username}@{adDomain}";
-                    using var ldap = new LdapConnection(new LdapDirectoryIdentifier(adServer));
+                    string fqdn = req.Username.Contains("@") ? req.Username : $"{req.Username}@{adDomain}";
+                    using var ldap = CreateLdapConnection(adServer);
                     ldap.Credential = new NetworkCredential(fqdn, req.Password);
                     ldap.AuthType = AuthType.Basic;
                     ldap.Bind();
@@ -981,6 +1029,16 @@ namespace OLRTLabSim.Controllers
         public IActionResult ResetPassword(long id, [FromBody] UserCreateRequest req)
         {
             using var conn = Database.GetConnection();
+
+            string targetUsername = "Unknown";
+            using (var nameCmd = conn.CreateCommand())
+            {
+                nameCmd.CommandText = "SELECT username FROM users WHERE id = @id";
+                nameCmd.Parameters.AddWithValue("@id", id);
+                var encUsername = (string)nameCmd.ExecuteScalar();
+                if (encUsername != null) targetUsername = CryptoHelper.DecryptDeterministic(encUsername);
+            }
+
             using var settingsCmd = conn.CreateCommand();
             settingsCmd.CommandText = "SELECT password_complexity_regex FROM settings WHERE id = 1";
             string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
@@ -1000,7 +1058,7 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@id", id);
             int rows = cmd.ExecuteNonQuery();
             if (rows == 0) return NotFound();
-            Database.LogAudit("USER_RESET", User?.Identity?.Name ?? "Unknown", $"Reset password for user ID {id}", HttpContext.Connection.RemoteIpAddress?.ToString());
+            Database.LogAudit("USER_RESET", User?.Identity?.Name ?? "Unknown", $"Reset password for user {targetUsername}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
         }
 
@@ -1099,7 +1157,7 @@ namespace OLRTLabSim.Controllers
             var groups = new List<string>();
             try
             {
-                using var ldap = new LdapConnection(new LdapDirectoryIdentifier(adServer));
+                using var ldap = CreateLdapConnection(adServer);
                 if (!string.IsNullOrWhiteSpace(adUser) && !string.IsNullOrWhiteSpace(adPass))
                 {
                     string fqdn = adUser.Contains("@") ? adUser : $"{adUser}@{adDomain}";
