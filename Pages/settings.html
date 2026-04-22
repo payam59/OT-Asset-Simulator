@@ -70,10 +70,15 @@
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center mt-4 mb-3">
-                    <h6 class="text-muted mb-0">Role Mapping (AD Groups)</h6>
-                    <button class="btn btn-sm btn-outline-primary" onclick="loadAdGroups()">
-                        <i class="fas fa-sync-alt me-1"></i>Load Groups from AD
-                    </button>
+                    <h6 class="text-muted mb-0">Connectivity & Role Mapping</h6>
+                    <div class="d-flex gap-2">
+                        <button class="btn btn-sm btn-outline-success" onclick="testAdConnection()">
+                            <i class="fas fa-plug me-1"></i>Test AD Connection
+                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="loadAdGroups()">
+                            <i class="fas fa-sync-alt me-1"></i>Load Groups from AD
+                        </button>
+                    </div>
                 </div>
                 <datalist id="adGroupsList"></datalist>
                 <div class="row mb-3">
@@ -137,6 +142,32 @@
                     window.location.href = '/login';
                 }
             } catch (err) {
+                console.error(err);
+            }
+        }
+
+        async function testAdConnection() {
+            const payload = {
+                AdServer: document.getElementById('adServer').value,
+                AdDomain: document.getElementById('adDomain').value,
+                AdServiceUser: document.getElementById('adServiceUser').value,
+                AdServicePassword: document.getElementById('adServicePassword').value
+            };
+
+            try {
+                const res = await fetch('/api/auth/test-ad', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('Success: ' + data.message);
+                } else {
+                    alert('Connection Failed: ' + data.error);
+                }
+            } catch (err) {
+                alert('Error testing connection.');
                 console.error(err);
             }
         }
