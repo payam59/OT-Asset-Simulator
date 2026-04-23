@@ -148,10 +148,10 @@
 
         async function testAdConnection() {
             const payload = {
-                AdServer: document.getElementById('adServer').value,
-                AdDomain: document.getElementById('adDomain').value,
-                AdServiceUser: document.getElementById('adServiceUser').value,
-                AdServicePassword: document.getElementById('adServicePassword').value
+                ad_server: document.getElementById('adServer').value,
+                ad_domain: document.getElementById('adDomain').value,
+                ad_service_user: document.getElementById('adServiceUser').value,
+                ad_service_password: document.getElementById('adServicePassword').value
             };
 
             try {
@@ -174,19 +174,19 @@
 
         async function saveSettings() {
             const payload = {
-                SessionTimeoutMinutes: parseInt(document.getElementById('sessionTimeout').value),
-                PasswordComplexityRegex: document.getElementById('passwordRegex').value,
-                PasswordHistoryCount: parseInt(document.getElementById('passwordHistory').value),
-                AdEnabled: document.getElementById('adEnabled').checked ? 1 : 0,
-                AdServer: document.getElementById('adServer').value,
-                AdDomain: document.getElementById('adDomain').value,
-                AdServiceUser: document.getElementById('adServiceUser').value,
-                AdServicePassword: document.getElementById('adServicePassword').value,
-                AdGroupAdmin: document.getElementById('adGroupAdmin').value,
-                AdGroupRw: document.getElementById('adGroupRw').value,
-                AdGroupRo: document.getElementById('adGroupRo').value,
-                EnableAuditLog: document.getElementById('enableAuditLog').checked ? 1 : 0,
-                EnableAlarmLog: document.getElementById('enableAlarmLog').checked ? 1 : 0
+                session_timeout_minutes: parseInt(document.getElementById('sessionTimeout').value),
+                password_complexity_regex: document.getElementById('passwordRegex').value,
+                password_history_count: parseInt(document.getElementById('passwordHistory').value),
+                ad_enabled: document.getElementById('adEnabled').checked ? 1 : 0,
+                ad_server: document.getElementById('adServer').value,
+                ad_domain: document.getElementById('adDomain').value,
+                ad_service_user: document.getElementById('adServiceUser').value,
+                ad_service_password: document.getElementById('adServicePassword').value,
+                ad_group_admin: document.getElementById('adGroupAdmin').value,
+                ad_group_rw: document.getElementById('adGroupRw').value,
+                ad_group_ro: document.getElementById('adGroupRo').value,
+                enable_audit_log: document.getElementById('enableAuditLog').checked ? 1 : 0,
+                enable_alarm_log: document.getElementById('enableAlarmLog').checked ? 1 : 0
             };
 
             const res = await fetch('/api/auth/settings', {
