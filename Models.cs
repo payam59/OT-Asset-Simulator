@@ -69,6 +69,12 @@ namespace OLRTLabSim.Models
         public string AlarmMessage { get; set; }
 
         public string Dnp3KepwareAddress { get; set; }
+
+        [JsonPropertyName("asset_name")]
+        public string AssetName { get; set; }
+
+        [JsonPropertyName("tag_name")]
+        public string TagName { get; set; }
     }
 
     public class AlarmEvent

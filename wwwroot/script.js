@@ -2,16 +2,16 @@ let socket;
 let bbmdList = [];
 let shouldReconnectSocket = true;
 let reconnectTimer = null;
+let userRole = 'read_only';
+let latestTags = [];
 
 function renderAlarms(alarms) {
     const alarmList = document.getElementById('alarmList');
     if (!alarmList) return;
-
     if (alarms.length === 0) {
         alarmList.innerHTML = '<div class="list-group-item text-muted">No active alarms.</div>';
         return;
     }
-
     alarmList.innerHTML = alarms.map(a => `
         <div class="list-group-item list-group-item-danger">
             <div class="d-flex justify-content-between">
@@ -26,13 +26,10 @@ function renderAlarms(alarms) {
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
-
-    socket.onmessage = function(event) {
-        const assets = JSON.parse(event.data);
-        renderAssets(assets);
+    socket.onmessage = () => {
+        window.fetchAssets();
         refreshAlarms();
     };
-
     socket.onclose = function() {
         if (!shouldReconnectSocket) return;
         if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -41,20 +38,16 @@ function connectWebSocket() {
 }
 
 function refreshAlarms() {
-    if (typeof window.fetchAlarms === 'function') {
-        window.fetchAlarms();
-    }
+    if (typeof window.fetchAlarms === 'function') window.fetchAlarms();
 }
 
 function renderBBMDs(bbmds) {
     const grid = document.getElementById('bbmdGrid');
     if (!grid) return;
-
     if (bbmds.length === 0) {
         grid.innerHTML = '<div class="col-12"><p class="text-muted">No BBMD devices configured. Click "Manage BBMD" to add one.</p></div>';
         return;
     }
-
     grid.innerHTML = bbmds.map(b => `
         <div class="col-md-6 col-lg-4 mb-3">
             <div class="card border-success shadow-sm">
@@ -64,9 +57,7 @@ function renderBBMDs(bbmds) {
                             <h6 class="mb-0"><i class="fas fa-server text-success me-1"></i>${b.name}</h6>
                             <small class="text-muted">${b.description || 'No description'}</small>
                         </div>
-                        <div class="d-flex gap-1">
-                            <span class="badge ${b.enabled ? 'bg-success' : 'bg-secondary'}">${b.enabled ? 'Active' : 'Disabled'}</span>
-                        </div>
+                        <span class="badge ${b.enabled ? 'bg-success' : 'bg-secondary'}">${b.enabled ? 'Active' : 'Disabled'}</span>
                     </div>
                     <div class="small mt-2 mb-2">
                         <div><strong>Port:</strong> ${b.port}</div>
@@ -74,12 +65,8 @@ function renderBBMDs(bbmds) {
                         <div><strong>IP:</strong> ${b.ip_address}</div>
                     </div>
                     ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`}
-                        <button class="btn btn-sm btn-outline-primary" data-bbmd-edit="${b.id}" onclick="window.editBBMD(${b.id})" type="button">
-                            <i class="fas fa-edit"></i> Edit
-                        </button>
-                        <button class="btn btn-sm btn-outline-danger" data-bbmd-delete="${b.id}" onclick="window.deleteBBMD(${b.id})" type="button">
-                            <i class="fas fa-trash"></i> Delete
-                        </button>
+                        <button class="btn btn-sm btn-outline-primary" onclick="window.editBBMD(${b.id})" type="button"><i class="fas fa-edit"></i> Edit</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="window.deleteBBMD(${b.id})" type="button"><i class="fas fa-trash"></i> Delete</button>
                     </div>
                 </div>
             </div>
@@ -87,70 +74,93 @@ function renderBBMDs(bbmds) {
     `).join('');
 }
 
-function renderAssets(assets) {
+function groupByAsset(tags) {
+    const map = new Map();
+    for (const t of tags) {
+        const assetName = (t.asset_name || t.name || 'Unknown').trim();
+        if (!map.has(assetName)) map.set(assetName, { name: assetName, tags: [] });
+        map.get(assetName).tags.push(t);
+    }
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function tagValueLabel(t) {
+    const isDigital = t.sub_type === 'Digital';
+    const isActive = t.current_value >= 0.5;
+    return isDigital ? (isActive ? 'ON' : 'OFF') : Number(t.current_value || 0).toFixed(2);
+}
+
+function renderAssets(tags) {
     const grid = document.getElementById('assetGrid');
     if (!grid) return;
 
-    grid.innerHTML = assets.map(a => {
-        const isDigital = a.sub_type === "Digital";
-        const isActive = a.current_value >= 0.5;
-        const statusText = isDigital ? (isActive ? 'ON' : 'OFF') : a.current_value.toFixed(2);
-        const iconColorClass = isActive ? "text-warning" : "text-secondary";
-        const inAlarm = a.alarm_state === 1;
-        const cardBorderClass = inAlarm ? "border-danger border-3" : (a.manual_override ? "border-warning" : "");
-        const cardBgClass = inAlarm ? "bg-danger-subtle" : (a.manual_override ? "overridden" : "");
-        const bbmdBadge = a.bbmd_id ? `<span class="badge bg-success">BBMD #${a.bbmd_id}</span>` : '';
-        const objectTypeBadge = `<span class="badge bg-info">${a.object_type || 'value'}</span>`;
-        const modbusBadge = a.protocol === 'modbus'
-            ? `<div class="small text-muted">Unit ${a.modbus_unit_id || 1} • ${a.modbus_register_type || 'holding'} @ ${a.address}</div>
-               <div class="small text-muted">TCP ${a.modbus_ip || '0.0.0.0'}:${a.modbus_port || 5020}</div>`
-            : '';
-        const dnp3Badge = a.protocol === 'dnp3'
-            ? `<div class="small text-muted">${a.dnp3_point_class || 'analog_output'} @ ${a.address}</div>
-               <div class="small text-muted">DNP3 ${a.dnp3_ip || '0.0.0.0'}:${a.dnp3_port ?? 20000} • M${a.dnp3_master_address ?? 1}/O${a.dnp3_outstation_address ?? 10}</div>
-               <div class="small text-muted">Kepware tag: ${a.dnp3_kepware_address || 'auto'}</div>`
-            : '';
-        const bacnetBadge = a.protocol === 'bacnet'
-            ? `<div class="small text-muted">BACnet instance ${a.address}${a.bbmd_id ? ` • BBMD ${a.bbmd_id}` : ''}</div>`
+    const assets = groupByAsset(tags);
+    if (assets.length === 0) {
+        grid.innerHTML = '<div class="col-12"><p class="text-muted">No assets created yet.</p></div>';
+        return;
+    }
+
+    grid.innerHTML = assets.map(asset => {
+        const alarms = asset.tags.filter(t => t.alarm_state === 1);
+        const inAlarm = alarms.length > 0;
+        const cardBorderClass = inAlarm ? 'border-danger border-3 bg-danger-subtle' : '';
+        const protocolSummary = [...new Set(asset.tags.map(t => (t.protocol || '').toUpperCase()))].join(', ');
+
+        const tagPreview = asset.tags.slice(0, 4).map(t => {
+            const inTagAlarm = t.alarm_state === 1;
+            return `<span class="badge ${inTagAlarm ? 'bg-danger' : 'bg-secondary'} me-1 mb-1">${t.tag_name || t.name}: ${tagValueLabel(t)}</span>`;
+        }).join('');
+
+        const alarmTags = alarms.length
+            ? `<div class="alert alert-danger py-1 px-2 mb-2 small"><i class="fas fa-exclamation-triangle me-1"></i>Alarm Tags: ${alarms.map(a => a.tag_name || a.name).join(', ')}</div>`
             : '';
 
         return `
-        <div class="col-md-4 col-lg-3 mb-4">
-            <div class="card asset-card p-3 shadow-sm ${cardBorderClass} ${cardBgClass}">
+        <div class="col-md-6 col-lg-4 mb-4">
+            <div class="card asset-card p-3 shadow-sm ${cardBorderClass}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <span class="badge bg-dark">${a.protocol.toUpperCase()}</span>
-                    ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2">` : `<div class="d-flex gap-2 d-none">`}
-                        <button class="btn btn-link text-primary p-0" onclick="window.openEditModal('${a.name}')"><i class="fas fa-edit"></i></button>
-                        <button class="btn btn-link text-danger p-0" onclick="window.deleteAsset('${a.name}')"><i class="fas fa-times"></i></button>
-                    </div>
+                    <span class="badge bg-dark">${protocolSummary || 'N/A'}</span>
+                    ${userRole === 'admin' || userRole === 'read_write' ? `<button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${asset.name}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>` : ''}
                 </div>
-                ${inAlarm ? `<div class="alert alert-danger py-1 px-2 mb-2 small"><i class="fas fa-exclamation-triangle me-1"></i>${a.alarm_message}</div>` : ''}
-                <div class="icon-container text-center my-2">
-                    <i class="fas ${a.icon} fa-3x ${inAlarm ? 'text-danger' : iconColorClass}" style="transition: color 0.3s ease;"></i>
-                </div>
+                ${alarmTags}
                 <div class="text-center">
-                    <h6 class="mb-0 fw-bold">${a.name}</h6>
-                    <small class="text-muted d-block mb-1">${isDigital ? (a.is_normally_open ? 'N.O.' : 'N.C.') : 'Analog'}</small>
-                    <div class="mb-1">${bbmdBadge} ${objectTypeBadge}</div>
-                    ${bacnetBadge}
-                    ${modbusBadge}
-                    ${dnp3Badge}
-                    <h2 class="value-display my-2 ${inAlarm ? 'text-danger fw-bold' : (isActive ? 'text-success' : '')}">${statusText}</h2>
-                    ${!isDigital ? `<small class="text-muted">Range: ${a.min_range} - ${a.max_range}</small>` : ''}
-                </div>
-                ${userRole === 'admin' || userRole === 'read_write' ? `<div class="d-flex gap-2 mt-2">` : `<div class="d-flex gap-2 mt-2 d-none">`}
-                    ${isDigital ?
-                        `<button class="btn btn-sm ${isActive ? 'btn-danger' : 'btn-success'} w-100" onclick="window.toggleDigital('${a.name}', ${a.current_value})">
-                            ${isActive ? 'Turn OFF' : 'Turn ON'}
-                        </button>` :
-                        `<button class="btn btn-sm btn-outline-warning w-100" onclick="window.sendOverride('${a.name}')">Inject</button>`
-                    }
-                    <button class="btn btn-sm btn-outline-secondary w-100" onclick="window.sendRelease('${a.name}')">Auto</button>
+                    <h5 class="mb-1 fw-bold">${asset.name}</h5>
+                    <small class="text-muted">${asset.tags.length} tag(s)</small>
+                    <div class="mt-2">${tagPreview || '<span class="text-muted">No tags</span>'}</div>
+                    ${asset.tags.length > 4 ? `<small class="text-muted">+${asset.tags.length - 4} more tag(s)</small>` : ''}
                 </div>
             </div>
         </div>`;
     }).join('');
 }
+
+window.openAssetTagsModal = function(assetName) {
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('assetTagsModal'));
+    document.getElementById('assetTagsTitle').textContent = `Asset Tags: ${assetName}`;
+
+    const tags = latestTags.filter(t => (t.asset_name || '').trim() === assetName);
+    const list = document.getElementById('assetTagsList');
+    if (!tags.length) {
+        list.innerHTML = '<div class="list-group-item text-muted">No tags found.</div>';
+    } else {
+        list.innerHTML = tags.map(t => {
+            const alarm = t.alarm_state === 1;
+            return `<div class="list-group-item d-flex justify-content-between align-items-center ${alarm ? 'list-group-item-danger' : ''}">
+                <div>
+                    <div><strong>${t.tag_name || t.name}</strong> <span class="badge bg-secondary">${(t.protocol || '').toUpperCase()}</span></div>
+                    <small class="text-muted">Runtime: ${t.name} | Addr: ${t.address} | Value: ${tagValueLabel(t)}</small>
+                    ${alarm ? `<div class="small text-danger">${t.alarm_message || 'Alarm active'}</div>` : ''}
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-sm btn-outline-primary" onclick="window.openEditModal('${t.name}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAsset('${t.name}')"><i class="fas fa-trash"></i></button>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    modal.show();
+};
 
 window.fetchBBMDs = async function() {
     try {
@@ -167,6 +177,7 @@ window.fetchBBMDs = async function() {
 window.fetchAssets = async function() {
     const response = await fetch('/api/assets');
     const assets = await response.json();
+    latestTags = assets;
     renderAssets(assets);
     window.fetchAlarms();
 };
@@ -174,10 +185,7 @@ window.fetchAssets = async function() {
 window.fetchAlarms = async function() {
     try {
         const response = await fetch('/api/alarms?active_only=1');
-        if (!response.ok) {
-            console.error('Failed to fetch alarms:', response.status);
-            return;
-        }
+        if (!response.ok) return;
         const alarms = await response.json();
         renderAlarms(alarms);
     } catch (error) {
@@ -189,57 +197,39 @@ function updateBBMDSelects() {
     const selects = ['bbmd_select', 'edit_bbmd_select'];
     selects.forEach(selectId => {
         const select = document.getElementById(selectId);
-        if (select) {
-            if (bbmdList.length === 0) {
-                select.innerHTML = '<option value="">No BBMD (Local device)</option>';
-            } else {
-                select.innerHTML = '<option value="">No BBMD (Local device)</option>' +
-                    bbmdList.map(b => `<option value="${b.id}">${b.name} - Port:${b.port} DevID:${b.device_id}</option>`).join('');
-            }
-        }
+        if (!select) return;
+        select.innerHTML = '<option value="">No BBMD (Local device)</option>' +
+            bbmdList.map(b => `<option value="${b.id}">${b.name} - Port:${b.port} DevID:${b.device_id}</option>`).join('');
     });
 }
 
 function updateBBMDList() {
     const list = document.getElementById('bbmdList');
     if (!list) return;
-
     if (bbmdList.length === 0) {
         list.innerHTML = '<p class="text-muted">No BBMD devices configured.</p>';
         return;
     }
-
     list.innerHTML = bbmdList.map(b => `
         <div class="border rounded p-2 mb-2 ${b.enabled ? 'border-success' : 'border-secondary'}">
             <div class="d-flex justify-content-between align-items-center">
-                <div>
-                    <strong>${b.name}</strong> <small class="text-muted">${b.description}</small><br>
-                    <small>Port: ${b.port} | Device ID: ${b.device_id} | IP: ${b.ip_address}</small>
-                </div>
-                <button class="btn btn-sm btn-danger" data-bbmd-delete="${b.id}" onclick="window.deleteBBMD(${b.id})" type="button">
-                    <i class="fas fa-trash"></i>
-                </button>
+                <div><strong>${b.name}</strong> <small class="text-muted">${b.description || ''}</small><br>
+                <small>Port: ${b.port} | Device ID: ${b.device_id} | IP: ${b.ip_address}</small></div>
+                <button class="btn btn-sm btn-danger" onclick="window.deleteBBMD(${b.id})" type="button"><i class="fas fa-trash"></i></button>
             </div>
-        </div>
-    `).join('');
+        </div>`).join('');
 }
 
 function inferModbusRegisterTypeFromAddress(rawAddress) {
     const cleaned = String(rawAddress ?? '').trim();
     if (!cleaned) return null;
     const digitsOnly = cleaned.replace(/\D/g, '');
-    if (!digitsOnly) return null;
-
-    // Kepware-style 5/6 digit references:
-    // 0xxxx/0xxxxx -> coil, 1xxxx/1xxxxx -> discrete,
-    // 3xxxx/3xxxxx -> input register, 4xxxx/4xxxxx -> holding register.
-    if (digitsOnly.length >= 5) {
-        const table = digitsOnly.charAt(0);
-        if (table === '0') return 'coil';
-        if (table === '1') return 'discrete';
-        if (table === '3') return 'input';
-        if (table === '4') return 'holding';
-    }
+    if (!digitsOnly || digitsOnly.length < 5) return null;
+    const table = digitsOnly.charAt(0);
+    if (table === '0') return 'coil';
+    if (table === '1') return 'discrete';
+    if (table === '3') return 'input';
+    if (table === '4') return 'holding';
     return null;
 }
 
@@ -247,15 +237,10 @@ function enforceModbusRegisterType(prefix = '') {
     const addrEl = document.getElementById(prefix + 'modbus_addr');
     const regEl = document.getElementById(prefix + 'modbus_register_type');
     if (!addrEl || !regEl) return;
-
     const inferred = inferModbusRegisterTypeFromAddress(addrEl.value);
     Array.from(regEl.options).forEach(o => o.disabled = false);
-
     if (!inferred) return;
-
-    Array.from(regEl.options).forEach(o => {
-        o.disabled = o.value !== inferred;
-    });
+    Array.from(regEl.options).forEach(o => { o.disabled = o.value !== inferred; });
     regEl.value = inferred;
 }
 
@@ -268,12 +253,7 @@ window.showAddBBMDForm = function() {
 window.editBBMD = function(id) {
     const bbmd = bbmdList.find(b => b.id === id);
     if (!bbmd) return;
-
-    const bbmdModalElement = document.getElementById('bbmdModal');
-    if (bbmdModalElement) {
-        bootstrap.Modal.getOrCreateInstance(bbmdModalElement).show();
-    }
-
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('bbmdModal')).show();
     document.getElementById('bbmdFormTitle').textContent = 'Edit BBMD Configuration';
     document.getElementById('bbmd_edit_id').value = id;
     document.getElementById('bbmd_name').value = bbmd.name;
@@ -282,11 +262,6 @@ window.editBBMD = function(id) {
     document.getElementById('bbmd_device_id').value = bbmd.device_id;
     document.getElementById('bbmd_ip').value = bbmd.ip_address;
     document.getElementById('addBBMDForm').style.display = 'block';
-
-    // Scroll to form after modal is visible
-    setTimeout(() => {
-        document.getElementById('addBBMDForm').scrollIntoView({ behavior: 'smooth' });
-    }, 150);
 };
 
 window.cancelBBMDForm = function() {
@@ -309,73 +284,61 @@ window.saveBBMD = async function() {
         ip_address: document.getElementById('bbmd_ip').value,
         enabled: 1
     };
-
     const isEdit = editId !== '';
-    const url = isEdit ? `/api/bbmd/${editId}` : '/api/bbmd';
-    const method = isEdit ? 'PUT' : 'POST';
-
-    const res = await fetch(url, {
-        method: method,
+    const res = await fetch(isEdit ? `/api/bbmd/${editId}` : '/api/bbmd', {
+        method: isEdit ? 'PUT' : 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(data)
     });
-
     if (res.ok) {
         window.cancelBBMDForm();
         window.fetchBBMDs();
     } else {
-        alert(`Failed to ${isEdit ? 'update' : 'create'} BBMD: ` + (await res.text()));
+        alert('Failed to save BBMD: ' + (await res.text()));
     }
 };
 
 window.deleteBBMD = async function(id) {
-    if (confirm('Delete this BBMD? Associated assets will be unlinked.')) {
-        await fetch(`/api/bbmd/${id}`, { method: 'DELETE' });
-        window.fetchBBMDs();
-    }
+    if (!confirm('Delete this BBMD? Associated assets will be unlinked.')) return;
+    await fetch(`/api/bbmd/${id}`, { method: 'DELETE' });
+    window.fetchBBMDs();
 };
 
 window.saveNewAsset = async function() {
     const protocol = document.getElementById('protocol').value;
     const isBacnet = protocol === 'bacnet';
     const isModbus = protocol === 'modbus';
-    const isDnp3 = protocol === 'dnp3';
-    const bbmdValue = document.getElementById('bbmd_select').value;
-    const assetName = (document.getElementById('name').value || '').trim();
-
-    if (!assetName) {
-        alert('Asset Name is required.');
+    const assetName = (document.getElementById('asset_name').value || '').trim();
+    const tagName = (document.getElementById('tag_name').value || '').trim();
+    if (!assetName || !tagName) {
+        alert('Asset and Tag names are required.');
         return;
     }
 
-    // Get address and icon based on protocol
-    const address = isBacnet
-        ? parseInt(document.getElementById('addr').value)
-        : (isModbus
-            ? parseInt(document.getElementById('modbus_addr').value)
-            : parseInt(document.getElementById('dnp3_addr').value));
-    const icon = isBacnet
-        ? document.getElementById('icon').value
-        : (isModbus
-            ? document.getElementById('modbus_icon').value
-            : document.getElementById('dnp3_icon').value);
+    const runtimeName = `${assetName.replace(/\s+/g, '_')}_${tagName.replace(/\s+/g, '_')}`;
+    const address = isBacnet ? parseInt(document.getElementById('addr').value) :
+        (isModbus ? parseInt(document.getElementById('modbus_addr').value) : parseInt(document.getElementById('dnp3_addr').value));
+    const icon = isBacnet ? document.getElementById('icon').value :
+        (isModbus ? document.getElementById('modbus_icon').value : document.getElementById('dnp3_icon').value);
 
     const data = {
-        name: assetName,
+        name: runtimeName,
+        asset_name: assetName,
+        tag_name: tagName,
         type: 'General',
         sub_type: document.getElementById('sub_type').value,
-        protocol: protocol,
-        address: address,
+        protocol,
+        address,
         min_range: parseFloat(document.getElementById('min').value) || 0,
         max_range: parseFloat(document.getElementById('max').value) || 100,
         drift_rate: parseFloat(document.getElementById('drift').value) || 0,
-        icon: icon,
+        icon,
         bacnet_port: parseInt(document.getElementById('bac_port').value) || 47808,
         bacnet_device_id: parseInt(document.getElementById('bac_id').value) || 1234,
         is_normally_open: parseInt(document.getElementById('logic_state').value),
         change_probability: parseFloat(document.getElementById('prob').value) || 0,
         change_interval: parseInt(document.getElementById('interval').value) || 15,
-        bbmd_id: isBacnet && bbmdValue ? parseInt(bbmdValue) : null,
+        bbmd_id: isBacnet && document.getElementById('bbmd_select').value ? parseInt(document.getElementById('bbmd_select').value) : null,
         object_type: isBacnet ? document.getElementById('object_type').value : 'value',
         bacnet_properties: isBacnet ? (document.getElementById('bacnet_properties').value || '{}') : '{}',
         modbus_unit_id: parseInt(document.getElementById('modbus_unit_id').value) || 1,
@@ -384,53 +347,34 @@ window.saveNewAsset = async function() {
         modbus_port: parseInt(document.getElementById('modbus_port').value) || 5020,
         modbus_zero_based: document.getElementById('modbus_zero_based').checked ? 1 : 0,
         modbus_word_order: document.getElementById('modbus_word_order').value || 'low_high',
-        modbus_alarm_address: (() => {
-            const raw = document.getElementById('modbus_alarm_address').value;
-            return raw === '' ? null : parseInt(raw);
-        })(),
+        modbus_alarm_address: document.getElementById('modbus_alarm_address').value === '' ? null : parseInt(document.getElementById('modbus_alarm_address').value),
         modbus_alarm_bit: parseInt(document.getElementById('modbus_alarm_bit').value) || 0,
         dnp3_ip: document.getElementById('dnp3_ip').value || '0.0.0.0',
         dnp3_port: parseInt(document.getElementById('dnp3_port').value) || 20000,
-        dnp3_outstation_address: (() => {
-            const parsed = parseInt(document.getElementById('dnp3_outstation_address').value);
-            return Number.isNaN(parsed) ? 10 : parsed;
-        })(),
-        dnp3_master_address: (() => {
-            const parsed = parseInt(document.getElementById('dnp3_master_address').value);
-            return Number.isNaN(parsed) ? 1 : parsed;
-        })(),
+        dnp3_outstation_address: parseInt(document.getElementById('dnp3_outstation_address').value) || 10,
+        dnp3_master_address: parseInt(document.getElementById('dnp3_master_address').value) || 1,
         dnp3_point_class: document.getElementById('dnp3_point_class').value || 'analog_output',
         dnp3_event_class: parseInt(document.getElementById('dnp3_event_class').value) || 1,
         dnp3_static_variation: parseInt(document.getElementById('dnp3_static_variation').value) || 0
     };
-
-    if (isModbus && !data.modbus_ip) {
-        alert('Modbus IP is required for Modbus assets.');
-        return;
-    }
-    if (isDnp3 && !data.dnp3_ip) {
-        alert('DNP3 IP is required for DNP3 assets.');
-        return;
-    }
 
     const res = await fetch('/api/assets', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
     if (res.ok) {
         bootstrap.Modal.getInstance(document.getElementById('addModal')).hide();
         window.fetchAssets();
     } else {
-        alert('Failed to create asset: ' + (await res.text()));
+        alert('Failed to create tag: ' + (await res.text()));
     }
 };
 
 window.openEditModal = async function(name) {
     const res = await fetch(`/api/assets/${encodeURIComponent(name)}`);
-    if (!res.ok) {
-        alert('Failed to load asset details for edit.');
-        return;
-    }
+    if (!res.ok) return alert('Failed to load tag.');
     const a = await res.json();
 
     document.getElementById('edit_name').value = a.name;
+    document.getElementById('edit_asset_name').value = a.asset_name || '';
+    document.getElementById('edit_tag_name').value = a.tag_name || '';
     document.getElementById('edit_sub_type').value = a.sub_type;
     document.getElementById('edit_protocol').value = a.protocol;
     document.getElementById('edit_min').value = a.min_range;
@@ -445,13 +389,10 @@ window.openEditModal = async function(name) {
     document.getElementById('edit_bbmd_select').value = a.bbmd_id || '';
     document.getElementById('edit_bacnet_properties').value = a.bacnet_properties || '{}';
 
-    // Set address and icon based on protocol
-    const isBacnet = a.protocol === 'bacnet';
-    const isModbus = a.protocol === 'modbus';
-    if (isBacnet) {
+    if (a.protocol === 'bacnet') {
         document.getElementById('edit_addr').value = a.address;
         document.getElementById('edit_icon').value = a.icon;
-    } else if (isModbus) {
+    } else if (a.protocol === 'modbus') {
         document.getElementById('edit_modbus_addr').value = a.address;
         document.getElementById('edit_modbus_icon').value = a.icon;
         document.getElementById('edit_modbus_unit_id').value = a.modbus_unit_id || 1;
@@ -462,7 +403,6 @@ window.openEditModal = async function(name) {
         document.getElementById('edit_modbus_word_order').value = a.modbus_word_order || 'low_high';
         document.getElementById('edit_modbus_alarm_address').value = a.modbus_alarm_address ?? '';
         document.getElementById('edit_modbus_alarm_bit').value = a.modbus_alarm_bit ?? 0;
-        enforceModbusRegisterType('edit_');
     } else {
         document.getElementById('edit_dnp3_addr').value = a.address;
         document.getElementById('edit_dnp3_icon').value = a.icon;
@@ -477,7 +417,7 @@ window.openEditModal = async function(name) {
 
     window.toggleFields('edit_');
     window.toggleProtocolFields('edit_');
-    new bootstrap.Modal(document.getElementById('editModal')).show();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
 };
 
 window.saveAssetEdit = async function() {
@@ -485,37 +425,31 @@ window.saveAssetEdit = async function() {
     const protocol = document.getElementById('edit_protocol').value;
     const isBacnet = protocol === 'bacnet';
     const isModbus = protocol === 'modbus';
-    const isDnp3 = protocol === 'dnp3';
-    const bbmdValue = document.getElementById('edit_bbmd_select').value;
 
-    // Get address and icon based on protocol
-    const address = isBacnet
-        ? parseInt(document.getElementById('edit_addr').value)
-        : (isModbus
-            ? parseInt(document.getElementById('edit_modbus_addr').value)
-            : parseInt(document.getElementById('edit_dnp3_addr').value));
-    const icon = isBacnet
-        ? document.getElementById('edit_icon').value
-        : (isModbus
-            ? document.getElementById('edit_modbus_icon').value
-            : document.getElementById('edit_dnp3_icon').value);
+    const assetName = (document.getElementById('edit_asset_name').value || '').trim();
+    const tagName = (document.getElementById('edit_tag_name').value || '').trim();
+    const runtimeName = `${assetName.replace(/\s+/g, '_')}_${tagName.replace(/\s+/g, '_')}`;
 
     const data = {
-        name: name,
+        name: runtimeName,
+        asset_name: assetName,
+        tag_name: tagName,
         type: 'General',
         sub_type: document.getElementById('edit_sub_type').value,
-        protocol: protocol,
-        address: address,
+        protocol,
+        address: isBacnet ? parseInt(document.getElementById('edit_addr').value) :
+            (isModbus ? parseInt(document.getElementById('edit_modbus_addr').value) : parseInt(document.getElementById('edit_dnp3_addr').value)),
         min_range: parseFloat(document.getElementById('edit_min').value) || 0,
         max_range: parseFloat(document.getElementById('edit_max').value) || 100,
         drift_rate: parseFloat(document.getElementById('edit_drift').value) || 0,
-        icon: icon,
+        icon: isBacnet ? document.getElementById('edit_icon').value :
+            (isModbus ? document.getElementById('edit_modbus_icon').value : document.getElementById('edit_dnp3_icon').value),
         bacnet_port: parseInt(document.getElementById('edit_bac_port').value) || 47808,
         bacnet_device_id: parseInt(document.getElementById('edit_bac_id').value) || 1234,
         is_normally_open: parseInt(document.getElementById('edit_logic_state').value),
         change_probability: parseFloat(document.getElementById('edit_prob').value) || 0,
         change_interval: parseInt(document.getElementById('edit_interval').value) || 15,
-        bbmd_id: isBacnet && bbmdValue ? parseInt(bbmdValue) : null,
+        bbmd_id: isBacnet && document.getElementById('edit_bbmd_select').value ? parseInt(document.getElementById('edit_bbmd_select').value) : null,
         object_type: isBacnet ? document.getElementById('edit_object_type').value : 'value',
         bacnet_properties: isBacnet ? (document.getElementById('edit_bacnet_properties').value || '{}') : '{}',
         modbus_unit_id: parseInt(document.getElementById('edit_modbus_unit_id').value) || 1,
@@ -524,46 +458,32 @@ window.saveAssetEdit = async function() {
         modbus_port: parseInt(document.getElementById('edit_modbus_port').value) || 5020,
         modbus_zero_based: document.getElementById('edit_modbus_zero_based').checked ? 1 : 0,
         modbus_word_order: document.getElementById('edit_modbus_word_order').value || 'low_high',
-        modbus_alarm_address: (() => {
-            const raw = document.getElementById('edit_modbus_alarm_address').value;
-            return raw === '' ? null : parseInt(raw);
-        })(),
+        modbus_alarm_address: document.getElementById('edit_modbus_alarm_address').value === '' ? null : parseInt(document.getElementById('edit_modbus_alarm_address').value),
         modbus_alarm_bit: parseInt(document.getElementById('edit_modbus_alarm_bit').value) || 0,
         dnp3_ip: document.getElementById('edit_dnp3_ip').value || '0.0.0.0',
         dnp3_port: parseInt(document.getElementById('edit_dnp3_port').value) || 20000,
-        dnp3_outstation_address: (() => {
-            const parsed = parseInt(document.getElementById('edit_dnp3_outstation_address').value);
-            return Number.isNaN(parsed) ? 10 : parsed;
-        })(),
-        dnp3_master_address: (() => {
-            const parsed = parseInt(document.getElementById('edit_dnp3_master_address').value);
-            return Number.isNaN(parsed) ? 1 : parsed;
-        })(),
+        dnp3_outstation_address: parseInt(document.getElementById('edit_dnp3_outstation_address').value) || 10,
+        dnp3_master_address: parseInt(document.getElementById('edit_dnp3_master_address').value) || 1,
         dnp3_point_class: document.getElementById('edit_dnp3_point_class').value || 'analog_output',
         dnp3_event_class: parseInt(document.getElementById('edit_dnp3_event_class').value) || 1,
         dnp3_static_variation: parseInt(document.getElementById('edit_dnp3_static_variation').value) || 0
     };
 
-
     const res = await fetch(`/api/assets/${encodeURIComponent(name)}`, {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data)
+        method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
     });
-
     if (res.ok) {
         bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
         window.fetchAssets();
     } else {
-        alert('Failed to update asset: ' + (await res.text()));
+        alert('Failed to update tag: ' + (await res.text()));
     }
 };
 
 window.deleteAsset = async function(name) {
-    if (confirm(`Remove ${name}?`)) {
-        await fetch(`/api/assets/${name}`, { method: 'DELETE' });
-        window.fetchAssets();
-    }
+    if (!confirm(`Remove tag ${name}?`)) return;
+    await fetch(`/api/assets/${name}`, { method: 'DELETE' });
+    window.fetchAssets();
 };
 
 window.toggleDigital = async function(name, currentVal) {
@@ -578,7 +498,7 @@ window.sendRelease = async function(name) {
 };
 
 window.sendOverride = async function(name) {
-    const val = prompt("Manual Analog Value:");
+    const val = prompt('Manual Analog Value:');
     if (val !== null) {
         await fetch(`/api/override/${name}?value=${val}`, { method: 'PUT' });
         window.fetchAssets();
@@ -593,25 +513,50 @@ window.toggleFields = function(prefix = '') {
 };
 
 window.toggleProtocolFields = function(prefix = '') {
-    const protocolSelect = document.getElementById(prefix + 'protocol');
-    const protocol = ((protocolSelect && protocolSelect.value) || '').toLowerCase().trim();
+    const protocol = ((document.getElementById(prefix + 'protocol')?.value) || '').toLowerCase().trim();
     const isBacnet = protocol === 'bacnet';
     const isModbus = protocol === 'modbus';
     const isDnp3 = protocol === 'dnp3' || protocol === 'dnp';
-
-    // Toggle config sections
-    const bacnetSection = document.getElementById(prefix + 'bacnet_config_section');
-    const modbusSection = document.getElementById(prefix + 'modbus_config_section');
-    const dnp3Section = document.getElementById(prefix + 'dnp3_config_section');
-    const objectTypeContainer = document.getElementById(prefix + 'object_type_container');
-
-    if (bacnetSection) bacnetSection.style.display = isBacnet ? 'block' : 'none';
-    if (modbusSection) modbusSection.style.display = isModbus ? 'block' : 'none';
-    if (dnp3Section) dnp3Section.style.display = isDnp3 ? 'block' : 'none';
-    if (objectTypeContainer) objectTypeContainer.style.display = isBacnet ? 'block' : 'none';
+    document.getElementById(prefix + 'bacnet_config_section').style.display = isBacnet ? 'block' : 'none';
+    document.getElementById(prefix + 'modbus_config_section').style.display = isModbus ? 'block' : 'none';
+    document.getElementById(prefix + 'dnp3_config_section').style.display = isDnp3 ? 'block' : 'none';
+    document.getElementById(prefix + 'object_type_container').style.display = isBacnet ? 'block' : 'none';
 };
 
-let userRole = 'read_only';
+window.importCsv = async function() {
+    const fileInput = document.getElementById('import_file');
+    const protocol = document.getElementById('import_protocol').value;
+    const assetName = (document.getElementById('import_asset_name').value || '').trim();
+    if (!fileInput.files.length) {
+        alert('Please select a CSV file.');
+        return;
+    }
+    if (!assetName) {
+        alert('Please enter an asset/device name.');
+        return;
+    }
+
+    const form = new FormData();
+    form.append('file', fileInput.files[0]);
+    form.append('protocol', protocol);
+    form.append('asset_name', assetName);
+
+    const res = await fetch('/api/assets/import', { method: 'POST', body: form });
+    const payload = await res.json();
+    if (!res.ok) {
+        alert(payload.detail || 'Import failed');
+        return;
+    }
+
+    let msg = payload.message || 'Import complete';
+    if (payload.errors && payload.errors.length) {
+        msg += `\nRows with errors: ${payload.errors.length}`;
+    }
+    alert(msg);
+    bootstrap.Modal.getInstance(document.getElementById('importModal')).hide();
+    fileInput.value = '';
+    window.fetchAssets();
+};
 
 async function fetchMe() {
     try {
@@ -620,79 +565,42 @@ async function fetchMe() {
             const data = await res.json();
             userRole = data.role;
             if (userRole === 'admin') {
-                const btn = document.getElementById('manageUsersBtn');
-                if (btn) btn.classList.remove('d-none');
-                const logsBtn = document.getElementById('viewLogsBtn');
-                if (logsBtn) logsBtn.classList.remove('d-none');
+                document.getElementById('manageUsersBtn')?.classList.remove('d-none');
+                document.getElementById('viewLogsBtn')?.classList.remove('d-none');
             }
             if (userRole === 'read_only') {
                 document.querySelectorAll('.btn-primary[data-bs-target="#addModal"]').forEach(el => el.classList.add('d-none'));
+                document.querySelectorAll('.btn-info[data-bs-target="#importModal"]').forEach(el => el.classList.add('d-none'));
                 document.querySelectorAll('.btn-success[data-bs-target="#bbmdModal"]').forEach(el => el.classList.add('d-none'));
             }
         }
-    } catch (e) {}
+    } catch {}
 }
 
 async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' });
     window.location.href = '/login';
 }
+window.logout = logout;
 
 const originalFetch = window.fetch;
 window.fetch = async function() {
     const res = await originalFetch.apply(this, arguments);
-    if (res.status === 401 || res.status === 403) {
-        window.location.href = '/login';
-    }
+    if (res.status === 401 || res.status === 403) window.location.href = '/login';
     return res;
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
     await fetchMe();
-    const addProtocolSelect = document.getElementById('protocol');
-    if (addProtocolSelect) {
-        addProtocolSelect.addEventListener('change', () => window.toggleProtocolFields(''));
-    }
-    const editProtocolSelect = document.getElementById('edit_protocol');
-    if (editProtocolSelect) {
-        editProtocolSelect.addEventListener('change', () => window.toggleProtocolFields('edit_'));
-    }
+
+    document.getElementById('protocol')?.addEventListener('change', () => window.toggleProtocolFields(''));
+    document.getElementById('edit_protocol')?.addEventListener('change', () => window.toggleProtocolFields('edit_'));
+    document.getElementById('modbus_addr')?.addEventListener('input', () => enforceModbusRegisterType(''));
+    document.getElementById('edit_modbus_addr')?.addEventListener('input', () => enforceModbusRegisterType('edit_'));
+
     window.toggleProtocolFields('');
     enforceModbusRegisterType('');
     enforceModbusRegisterType('edit_');
-
-    const modbusAddr = document.getElementById('modbus_addr');
-    if (modbusAddr) {
-        modbusAddr.addEventListener('input', () => enforceModbusRegisterType(''));
-        modbusAddr.addEventListener('change', () => enforceModbusRegisterType(''));
-    }
-    const editModbusAddr = document.getElementById('edit_modbus_addr');
-    if (editModbusAddr) {
-        editModbusAddr.addEventListener('input', () => enforceModbusRegisterType('edit_'));
-        editModbusAddr.addEventListener('change', () => enforceModbusRegisterType('edit_'));
-    }
-
-    const bbmdGrid = document.getElementById('bbmdGrid');
-    if (bbmdGrid) {
-        bbmdGrid.addEventListener('click', (event) => {
-            const target = event.target.closest('button');
-            if (!target) return;
-            const editId = target.getAttribute('data-bbmd-edit');
-            const deleteId = target.getAttribute('data-bbmd-delete');
-            if (editId) window.editBBMD(parseInt(editId));
-            if (deleteId) window.deleteBBMD(parseInt(deleteId));
-        });
-    }
-
-    const bbmdList = document.getElementById('bbmdList');
-    if (bbmdList) {
-        bbmdList.addEventListener('click', (event) => {
-            const target = event.target.closest('button');
-            if (!target) return;
-            const deleteId = target.getAttribute('data-bbmd-delete');
-            if (deleteId) window.deleteBBMD(parseInt(deleteId));
-        });
-    }
 
     window.fetchBBMDs();
     window.fetchAssets();
@@ -704,11 +612,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 window.addEventListener('beforeunload', () => {
     shouldReconnectSocket = false;
-    if (reconnectTimer) {
-        clearTimeout(reconnectTimer);
-        reconnectTimer = null;
-    }
-    if (socket && socket.readyState === WebSocket.OPEN) {
-        socket.close();
-    }
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (socket && socket.readyState === WebSocket.OPEN) socket.close();
 });

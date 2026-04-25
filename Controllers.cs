@@ -13,6 +13,8 @@ using OLRTLabSim.Helpers;
 using System.Text.RegularExpressions;
 using System.DirectoryServices.Protocols;
 using System.Net;
+using System.IO;
+using System.Linq;
 
 namespace OLRTLabSim.Controllers
 {
@@ -80,7 +82,9 @@ namespace OLRTLabSim.Controllers
                 Dnp3EventClass = Convert.ToInt64(reader["dnp3_event_class"]),
                 Dnp3StaticVariation = Convert.ToInt64(reader["dnp3_static_variation"]),
                 AlarmState = Convert.ToInt64(reader["alarm_state"]),
-                AlarmMessage = reader["alarm_message"] == DBNull.Value ? null : reader["alarm_message"].ToString()
+                AlarmMessage = reader["alarm_message"] == DBNull.Value ? null : reader["alarm_message"].ToString(),
+                AssetName = reader["asset_name"] == DBNull.Value ? reader["name"].ToString() : reader["asset_name"].ToString(),
+                TagName = reader["tag_name"] == DBNull.Value ? reader["name"].ToString() : reader["tag_name"].ToString()
             };
         }
 
@@ -122,6 +126,8 @@ namespace OLRTLabSim.Controllers
                 assets.Add(new {
                     id = reader["id"],
                     name = reader["name"]?.ToString(),
+                    asset_name = reader["asset_name"] == DBNull.Value ? reader["name"]?.ToString() : reader["asset_name"]?.ToString(),
+                    tag_name = reader["tag_name"] == DBNull.Value ? reader["name"]?.ToString() : reader["tag_name"]?.ToString(),
                     type = reader["type"]?.ToString(),
                     sub_type = reader["sub_type"]?.ToString(),
                     protocol = reader["protocol"]?.ToString(),
@@ -175,6 +181,8 @@ namespace OLRTLabSim.Controllers
             return Ok(new {
                 id = asset.Id,
                 name = asset.Name,
+                asset_name = asset.AssetName,
+                tag_name = asset.TagName,
                 type = asset.Type,
                 sub_type = asset.SubType,
                 protocol = asset.Protocol,
@@ -256,8 +264,20 @@ namespace OLRTLabSim.Controllers
         [HttpPost("assets")]
         public async Task<IActionResult> CreateAsset([FromBody] Asset asset)
         {
-            if (string.IsNullOrWhiteSpace(asset.Name))
+            if (string.IsNullOrWhiteSpace(asset.AssetName) && string.IsNullOrWhiteSpace(asset.Name))
                 return BadRequest(new { detail = "Asset name is required" });
+
+            var safeAssetName = (asset.AssetName ?? asset.Name ?? "").Trim().Replace(" ", "_");
+            var safeTagName = (asset.TagName ?? asset.Name ?? "Tag").Trim().Replace(" ", "_");
+            if (string.IsNullOrWhiteSpace(safeAssetName))
+                return BadRequest(new { detail = "Asset name is required" });
+            if (string.IsNullOrWhiteSpace(safeTagName))
+                return BadRequest(new { detail = "Tag name is required" });
+
+            asset.AssetName = safeAssetName;
+            asset.TagName = safeTagName;
+            if (string.IsNullOrWhiteSpace(asset.Name))
+                asset.Name = $"{safeAssetName}_{safeTagName}";
 
             if ((asset.Protocol ?? "").Equals("modbus", StringComparison.OrdinalIgnoreCase))
             {
@@ -290,7 +310,7 @@ namespace OLRTLabSim.Controllers
 
             cmd.CommandText = @"
                 INSERT INTO assets (
-                    name, type, sub_type, protocol, address, min_range, max_range,
+                    name, asset_name, tag_name, type, sub_type, protocol, address, min_range, max_range,
                     current_value, drift_rate, icon, filename, bacnet_port,
                     bacnet_device_id, is_normally_open, change_probability,
                     change_interval, last_flip_check, bbmd_id, object_type, bacnet_properties,
@@ -299,11 +319,13 @@ namespace OLRTLabSim.Controllers
                     dnp3_ip, dnp3_port, dnp3_outstation_address, dnp3_master_address,
                     dnp3_point_class, dnp3_event_class, dnp3_static_variation, alarm_state
                 )
-                VALUES (@p1, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, 0)
+                VALUES (@p1, @p1a, @p1b, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, 0)
             ";
 
             cmd.Parameters.Clear();
             cmd.Parameters.AddWithValue("@p1", asset.Name);
+            cmd.Parameters.AddWithValue("@p1a", asset.AssetName);
+            cmd.Parameters.AddWithValue("@p1b", asset.TagName);
             cmd.Parameters.AddWithValue("@p2", (object)(asset.Type ?? "General"));
             cmd.Parameters.AddWithValue("@p3", (object)(asset.SubType ?? "Analog"));
             cmd.Parameters.AddWithValue("@p4", (object)(asset.Protocol ?? "bacnet"));
@@ -397,7 +419,7 @@ namespace OLRTLabSim.Controllers
 
             cmd.CommandText = @"
                 UPDATE assets
-                SET type = @p2, sub_type = @p3, protocol = @p4, address = @p5, min_range = @p6,
+                SET asset_name = @p1a, tag_name = @p1b, type = @p2, sub_type = @p3, protocol = @p4, address = @p5, min_range = @p6,
                     max_range = @p7, drift_rate = @p9, icon = @p10, filename = @p11, bacnet_port = @p12,
                     bacnet_device_id = @p13, is_normally_open = @p14, change_probability = @p15,
                     change_interval = @p16, bbmd_id = @p18, object_type = @p19, modbus_unit_id = @p21,
@@ -410,6 +432,8 @@ namespace OLRTLabSim.Controllers
 
             cmd.Parameters.Clear();
             cmd.Parameters.AddWithValue("@p1", name);
+            cmd.Parameters.AddWithValue("@p1a", string.IsNullOrWhiteSpace(asset.AssetName) ? existing.AssetName : asset.AssetName.Trim().Replace(" ", "_"));
+            cmd.Parameters.AddWithValue("@p1b", string.IsNullOrWhiteSpace(asset.TagName) ? existing.TagName : asset.TagName.Trim().Replace(" ", "_"));
             cmd.Parameters.AddWithValue("@p2", (object)(asset.Type ?? "General"));
             cmd.Parameters.AddWithValue("@p3", (object)(asset.SubType ?? "Analog"));
             cmd.Parameters.AddWithValue("@p4", (object)(asset.Protocol ?? "bacnet"));
@@ -484,6 +508,224 @@ namespace OLRTLabSim.Controllers
 
             Database.LogAudit("ASSET_DELETE", User?.Identity?.Name ?? "Unknown", $"Deleted asset {name}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { message = "Asset deleted" });
+        }
+
+
+        private static List<string> ParseCsvLine(string line)
+        {
+            var result = new List<string>();
+            if (line == null)
+                return result;
+
+            var current = new System.Text.StringBuilder();
+            bool inQuotes = false;
+            for (int i = 0; i < line.Length; i++)
+            {
+                char c = line[i];
+                if (c == '"')
+                {
+                    if (inQuotes && i + 1 < line.Length && line[i + 1] == '"')
+                    {
+                        current.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = !inQuotes;
+                    }
+                }
+                else if (c == ',' && !inQuotes)
+                {
+                    result.Add(current.ToString().Trim());
+                    current.Clear();
+                }
+                else
+                {
+                    current.Append(c);
+                }
+            }
+            result.Add(current.ToString().Trim());
+            return result;
+        }
+
+        private static long ParseAddressOrDefault(string raw, long fallback)
+        {
+            if (string.IsNullOrWhiteSpace(raw)) return fallback;
+            var matches = Regex.Matches(raw, @"\d+");
+            if (matches.Count == 0) return fallback;
+            if (long.TryParse(matches[^1].Value, out var last)) return last;
+            return fallback;
+        }
+
+        [Authorize(Roles = "admin,read_write")]
+        [HttpPost("assets/import")]
+        public async Task<IActionResult> ImportAssetsCsv([FromForm] IFormFile file, [FromForm] string protocol, [FromForm] string asset_name)
+        {
+            if (file == null || file.Length == 0)
+                return BadRequest(new { detail = "CSV file is required" });
+
+            var normalizedProtocol = (protocol ?? "").Trim().ToLowerInvariant();
+            if (normalizedProtocol != "bacnet" && normalizedProtocol != "modbus" && normalizedProtocol != "dnp3")
+                return BadRequest(new { detail = "Protocol must be bacnet, modbus, or dnp3" });
+
+            var assetGroupName = string.IsNullOrWhiteSpace(asset_name) ? "ImportedAsset" : asset_name.Trim().Replace(" ", "_");
+
+            using var stream = file.OpenReadStream();
+            using var reader = new StreamReader(stream);
+            var lines = new List<string>();
+            while (!reader.EndOfStream)
+            {
+                lines.Add((await reader.ReadLineAsync()) ?? "");
+            }
+
+            if (lines.Count <= 1)
+                return BadRequest(new { detail = "CSV has no data rows" });
+
+            var header = ParseCsvLine(lines[0]);
+            int idxTag = header.FindIndex(h => string.Equals(h, "Tag Name", StringComparison.OrdinalIgnoreCase));
+            int idxAddr = header.FindIndex(h => string.Equals(h, "Address", StringComparison.OrdinalIgnoreCase));
+            int idxType = header.FindIndex(h => string.Equals(h, "Data Type", StringComparison.OrdinalIgnoreCase));
+            int idxDesc = header.FindIndex(h => string.Equals(h, "Description", StringComparison.OrdinalIgnoreCase));
+
+            if (idxTag < 0 || idxAddr < 0)
+                return BadRequest(new { detail = "CSV must include Tag Name and Address columns" });
+
+            int created = 0;
+            var errors = new List<object>();
+
+            for (int i = 1; i < lines.Count; i++)
+            {
+                var raw = lines[i];
+                if (string.IsNullOrWhiteSpace(raw))
+                    continue;
+
+                var cols = ParseCsvLine(raw);
+                string tag = idxTag < cols.Count ? cols[idxTag].Trim().Trim('"') : "";
+                string addr = idxAddr < cols.Count ? cols[idxAddr].Trim().Trim('"') : "";
+                string dataType = idxType >= 0 && idxType < cols.Count ? cols[idxType].Trim().Trim('"') : "";
+                string description = idxDesc >= 0 && idxDesc < cols.Count ? cols[idxDesc].Trim().Trim('"') : "";
+
+                if (string.IsNullOrWhiteSpace(tag))
+                {
+                    errors.Add(new { row = i + 1, error = "Missing Tag Name" });
+                    continue;
+                }
+
+                var tagName = (!string.IsNullOrWhiteSpace(description) ? description : tag).Replace(" ", "_");
+                var runtimeName = $"{assetGroupName}_{tagName}";
+                var subType = dataType.Equals("boolean", StringComparison.OrdinalIgnoreCase) ? "Digital" : "Analog";
+
+                var model = new Asset
+                {
+                    Name = runtimeName,
+                    AssetName = assetGroupName,
+                    TagName = tagName,
+                    Type = "General",
+                    SubType = subType,
+                    Protocol = normalizedProtocol,
+                    Address = ParseAddressOrDefault(addr, i),
+                    MinRange = 0,
+                    MaxRange = 100,
+                    CurrentValue = 0,
+                    DriftRate = subType == "Digital" ? 0 : 0.5,
+                    Icon = subType == "Digital" ? "fa-toggle-on" : "fa-gauge",
+                    BacnetPort = 47808,
+                    BacnetDeviceId = 1234,
+                    IsNormallyOpen = 1,
+                    ChangeProbability = subType == "Digital" ? 10 : 0,
+                    ChangeInterval = 15,
+                    ObjectType = normalizedProtocol == "bacnet" ? "value" : "value",
+                    BacnetProperties = "{}",
+                    ModbusUnitId = 1,
+                    ModbusRegisterType = InferModbusRegisterTypeFromAddress(ParseAddressOrDefault(addr, i)) ?? "holding",
+                    ModbusIp = "0.0.0.0",
+                    ModbusPort = 5020,
+                    ModbusAlarmBit = 0,
+                    Dnp3Ip = "0.0.0.0",
+                    Dnp3Port = 20000,
+                    Dnp3OutstationAddress = 10,
+                    Dnp3MasterAddress = 1,
+                    Dnp3PointClass = subType == "Digital" ? "binary_output" : "analog_output",
+                    Dnp3EventClass = 1,
+                    Dnp3StaticVariation = 0
+                };
+
+                using var conn = Database.GetConnection();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*) FROM assets WHERE name = @name";
+                cmd.Parameters.AddWithValue("@name", model.Name);
+                if (Convert.ToInt64(cmd.ExecuteScalar()) > 0)
+                {
+                    errors.Add(new { row = i + 1, error = $"Duplicate tag/runtime name {model.Name}" });
+                    continue;
+                }
+
+                cmd.CommandText = @"
+                INSERT INTO assets (
+                    name, asset_name, tag_name, type, sub_type, protocol, address, min_range, max_range,
+                    current_value, drift_rate, icon, filename, bacnet_port,
+                    bacnet_device_id, is_normally_open, change_probability,
+                    change_interval, last_flip_check, bbmd_id, object_type, bacnet_properties,
+                    modbus_unit_id, modbus_register_type, modbus_ip, modbus_port,
+                    modbus_alarm_address, modbus_alarm_bit,
+                    dnp3_ip, dnp3_port, dnp3_outstation_address, dnp3_master_address,
+                    dnp3_point_class, dnp3_event_class, dnp3_static_variation, alarm_state
+                )
+                VALUES (@p1, @p1a, @p1b, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, 0)
+            ";
+
+                cmd.Parameters.Clear();
+                cmd.Parameters.AddWithValue("@p1", model.Name);
+                cmd.Parameters.AddWithValue("@p1a", model.AssetName);
+                cmd.Parameters.AddWithValue("@p1b", model.TagName);
+                cmd.Parameters.AddWithValue("@p2", model.Type);
+                cmd.Parameters.AddWithValue("@p3", model.SubType);
+                cmd.Parameters.AddWithValue("@p4", model.Protocol);
+                cmd.Parameters.AddWithValue("@p5", model.Address);
+                cmd.Parameters.AddWithValue("@p6", model.MinRange);
+                cmd.Parameters.AddWithValue("@p7", model.MaxRange);
+                cmd.Parameters.AddWithValue("@p8", model.CurrentValue);
+                cmd.Parameters.AddWithValue("@p9", model.DriftRate);
+                cmd.Parameters.AddWithValue("@p10", model.Icon ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@p11", model.Filename ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@p12", model.BacnetPort);
+                cmd.Parameters.AddWithValue("@p13", model.BacnetDeviceId);
+                cmd.Parameters.AddWithValue("@p14", model.IsNormallyOpen);
+                cmd.Parameters.AddWithValue("@p15", model.ChangeProbability);
+                cmd.Parameters.AddWithValue("@p16", model.ChangeInterval);
+                cmd.Parameters.AddWithValue("@p17", Database.GetCurrentUnixTime());
+                cmd.Parameters.AddWithValue("@p18", model.BbmdId ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@p19", model.ObjectType);
+                cmd.Parameters.AddWithValue("@p20", model.BacnetProperties ?? "{}");
+                cmd.Parameters.AddWithValue("@p21", model.ModbusUnitId);
+                cmd.Parameters.AddWithValue("@p22", model.ModbusRegisterType ?? "holding");
+                cmd.Parameters.AddWithValue("@p23", model.ModbusIp ?? "0.0.0.0");
+                cmd.Parameters.AddWithValue("@p24", model.ModbusPort);
+                cmd.Parameters.AddWithValue("@p25", model.ModbusAlarmAddress ?? (object)DBNull.Value);
+                cmd.Parameters.AddWithValue("@p26", model.ModbusAlarmBit);
+                cmd.Parameters.AddWithValue("@p27", model.Dnp3Ip ?? "0.0.0.0");
+                cmd.Parameters.AddWithValue("@p28", model.Dnp3Port);
+                cmd.Parameters.AddWithValue("@p29", model.Dnp3OutstationAddress);
+                cmd.Parameters.AddWithValue("@p30", model.Dnp3MasterAddress);
+                cmd.Parameters.AddWithValue("@p31", model.Dnp3PointClass ?? "analog_output");
+                cmd.Parameters.AddWithValue("@p32", model.Dnp3EventClass);
+                cmd.Parameters.AddWithValue("@p33", model.Dnp3StaticVariation);
+
+                cmd.ExecuteNonQuery();
+
+                if (model.Protocol == "bacnet")
+                    await _bacnetManager.RegisterAsset(model);
+                else if (model.Protocol == "modbus")
+                    await _modbusManager.RegisterAsset(model);
+                else if (model.Protocol == "dnp3")
+                    await _dnp3Manager.RegisterAsset(model);
+
+                PushToRuntime(model);
+                created++;
+            }
+
+            Database.LogAudit("ASSET_IMPORT", User?.Identity?.Name ?? "Unknown", $"Imported {created} tags into asset {assetGroupName} via CSV", HttpContext.Connection.RemoteIpAddress?.ToString());
+            return Ok(new { message = $"Imported {created} tag(s)", created, errors });
         }
 
         [Authorize]
