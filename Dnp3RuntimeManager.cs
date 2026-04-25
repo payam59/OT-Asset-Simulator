@@ -520,8 +520,8 @@ namespace OLRTLabSim.Services
             }
             try
             {
-                context.Server.Dispose();
-            }
+                GC.SuppressFinalize(context.Outstation);
+                GC.SuppressFinalize(context.Server);
             catch
             {
             }
