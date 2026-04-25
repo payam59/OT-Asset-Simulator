@@ -511,6 +511,53 @@ namespace OLRTLabSim.Controllers
             return Ok(new { message = "Asset deleted" });
         }
 
+        [Authorize(Roles = "admin,read_write")]
+        [HttpDelete("assets/by-asset/{assetName}")]
+        public async Task<IActionResult> DeleteAssetGroup(string assetName)
+        {
+            if (string.IsNullOrWhiteSpace(assetName))
+                return BadRequest(new { detail = "Asset name is required" });
+
+            var normalizedAssetName = assetName.Trim();
+            var tags = new List<(string Name, string Protocol)>();
+
+            using (var conn = Database.GetConnection())
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "SELECT name, protocol FROM assets WHERE asset_name = @asset_name";
+                cmd.Parameters.AddWithValue("@asset_name", normalizedAssetName);
+                using var reader = cmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    tags.Add((reader["name"]?.ToString() ?? "", reader["protocol"]?.ToString() ?? ""));
+                }
+            }
+
+            if (tags.Count == 0)
+                return NotFound(new { detail = "Asset not found" });
+
+            foreach (var tag in tags)
+            {
+                if (tag.Protocol == "bacnet")
+                    await _bacnetManager.UnregisterAsset(tag.Name);
+                else if (tag.Protocol == "modbus")
+                    await _modbusManager.UnregisterAsset(tag.Name);
+                else if (tag.Protocol == "dnp3")
+                    await _dnp3Manager.UnregisterAsset(tag.Name);
+            }
+
+            using (var conn = Database.GetConnection())
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = "DELETE FROM assets WHERE asset_name = @asset_name";
+                cmd.Parameters.AddWithValue("@asset_name", normalizedAssetName);
+                cmd.ExecuteNonQuery();
+            }
+
+            Database.LogAudit("ASSET_GROUP_DELETE", User?.Identity?.Name ?? "Unknown", $"Deleted asset group {normalizedAssetName} and all tags", HttpContext.Connection.RemoteIpAddress?.ToString());
+            return Ok(new { message = "Asset and all associated tags deleted" });
+        }
+
 
         private static List<string> ParseCsvLine(string line)
         {

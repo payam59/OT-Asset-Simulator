@@ -5,6 +5,7 @@ let reconnectTimer = null;
 let userRole = 'read_only';
 let latestTags = [];
 let returnToAssetTagsAfterEdit = false;
+let selectedAssetForTagModal = '';
 
 function renderAlarms(alarms) {
     const alarmList = document.getElementById('alarmList');
@@ -121,7 +122,11 @@ function renderAssets(tags) {
             <div class="card asset-card p-3 shadow-sm ${cardBorderClass}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="badge bg-dark">${protocolSummary || 'N/A'}</span>
-                    ${userRole === 'admin' || userRole === 'read_write' ? `<button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${encodeURIComponent(asset.name)}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>` : ''}
+                    ${userRole === 'admin' || userRole === 'read_write' ? `
+                        <div class="d-flex gap-1">
+                            <button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${encodeURIComponent(asset.name)}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAssetGroup('${encodeURIComponent(asset.name)}')"><i class="fas fa-trash me-1"></i>Delete Asset</button>
+                        </div>` : ''}
                 </div>
                 ${alarmTags}
                 <div class="text-center">
@@ -137,8 +142,13 @@ function renderAssets(tags) {
 
 window.openAssetTagsModal = function(assetNameEncoded) {
     const assetName = decodeURIComponent(assetNameEncoded);
+    selectedAssetForTagModal = assetName;
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('assetTagsModal'));
     document.getElementById('assetTagsTitle').textContent = `Asset Tags: ${assetName}`;
+    const addTagButton = document.getElementById('assetTagsAddTagBtn');
+    if (addTagButton) {
+        addTagButton.style.display = (userRole === 'admin' || userRole === 'read_write') ? 'inline-block' : 'none';
+    }
 
     const tags = latestTags.filter(t => (t.asset_name || '').trim() === assetName);
     const list = document.getElementById('assetTagsList');
@@ -151,6 +161,7 @@ window.openAssetTagsModal = function(assetNameEncoded) {
                 <div>
                     <div><strong>${t.tag_name || t.name}</strong> <span class="badge bg-secondary">${(t.protocol || '').toUpperCase()}</span></div>
                     <small class="text-muted">Runtime: ${t.name} | Addr: ${t.address} | Value: ${tagValueLabel(t)}</small>
+                    ${(t.protocol || '').toLowerCase() === 'dnp3' ? `<div><small class="text-muted">Kepware: ${t.dnp3_kepware_address || 'n/a'}</small></div>` : ''}
                     ${alarm ? `<div class="small text-danger">${t.alarm_message || 'Alarm active'}</div>` : ''}
                 </div>
                 <div class="d-flex gap-2">
@@ -369,6 +380,21 @@ window.saveNewAsset = async function() {
     }
 };
 
+window.openAddTagFromAssetModal = function() {
+    if (!selectedAssetForTagModal) return;
+    const tagsModalEl = document.getElementById('assetTagsModal');
+    const tagsModal = bootstrap.Modal.getOrCreateInstance(tagsModalEl);
+    const addModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('addModal'));
+
+    tagsModalEl.addEventListener('hidden.bs.modal', () => {
+        document.getElementById('asset_name').value = selectedAssetForTagModal;
+        document.getElementById('tag_name').value = '';
+        addModal.show();
+    }, { once: true });
+
+    tagsModal.hide();
+};
+
 window.openEditModal = async function(nameEncoded) {
     const name = decodeURIComponent(nameEncoded);
     const res = await fetch(`/api/assets/${encodeURIComponent(name)}`);
@@ -395,6 +421,7 @@ window.openEditModal = async function(nameEncoded) {
     if (a.protocol === 'bacnet') {
         document.getElementById('edit_addr').value = a.address;
         document.getElementById('edit_icon').value = a.icon;
+        document.getElementById('edit_dnp3_kepware_address').value = '';
     } else if (a.protocol === 'modbus') {
         document.getElementById('edit_modbus_addr').value = a.address;
         document.getElementById('edit_modbus_icon').value = a.icon;
@@ -406,6 +433,7 @@ window.openEditModal = async function(nameEncoded) {
         document.getElementById('edit_modbus_word_order').value = a.modbus_word_order || 'low_high';
         document.getElementById('edit_modbus_alarm_address').value = a.modbus_alarm_address ?? '';
         document.getElementById('edit_modbus_alarm_bit').value = a.modbus_alarm_bit ?? 0;
+        document.getElementById('edit_dnp3_kepware_address').value = '';
     } else {
         document.getElementById('edit_dnp3_addr').value = a.address;
         document.getElementById('edit_dnp3_icon').value = a.icon;
@@ -416,6 +444,7 @@ window.openEditModal = async function(nameEncoded) {
         document.getElementById('edit_dnp3_point_class').value = a.dnp3_point_class || 'analog_output';
         document.getElementById('edit_dnp3_event_class').value = a.dnp3_event_class || 1;
         document.getElementById('edit_dnp3_static_variation').value = a.dnp3_static_variation || 0;
+        document.getElementById('edit_dnp3_kepware_address').value = a.dnp3_kepware_address || '';
     }
 
     window.toggleFields('edit_');
@@ -511,7 +540,14 @@ window.saveAssetEdit = async function() {
 window.deleteAsset = async function(nameEncoded) {
     const name = decodeURIComponent(nameEncoded);
     if (!confirm(`Remove tag ${name}?`)) return;
-    await fetch(`/api/assets/${name}`, { method: 'DELETE' });
+    await fetch(`/api/assets/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    window.fetchAssets();
+};
+
+window.deleteAssetGroup = async function(assetNameEncoded) {
+    const assetName = decodeURIComponent(assetNameEncoded);
+    if (!confirm(`Delete asset ${assetName} and all of its tags?`)) return;
+    await fetch(`/api/assets/by-asset/${encodeURIComponent(assetName)}`, { method: 'DELETE' });
     window.fetchAssets();
 };
 
