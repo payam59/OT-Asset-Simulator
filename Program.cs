@@ -8,6 +8,7 @@ using Serilog;
 using OLRTLabSim.Data;
 using OLRTLabSim.Engine;
 using OLRTLabSim.Services;
+using System.Net.WebSockets;
 using System.Threading.Tasks;
 
 Log.Logger = new LoggerConfiguration()
@@ -72,6 +73,7 @@ try
     var app = builder.Build();
 
     app.UseStaticFiles();
+    app.UseWebSockets();
 
     app.UseAuthentication();
     app.UseAuthorization();
@@ -174,6 +176,29 @@ try
         }
         context.Response.ContentType = "text/html";
         await context.Response.SendFileAsync("Pages/logs.html");
+    });
+
+    app.Map("/ws", async context =>
+    {
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("WebSocket request expected.");
+            return;
+        }
+
+        using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+        var buffer = new byte[1024];
+
+        while (!context.RequestAborted.IsCancellationRequested && webSocket.State == WebSocketState.Open)
+        {
+            var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), context.RequestAborted);
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by client", context.RequestAborted);
+                break;
+            }
+        }
     });
 
 app.Run();
