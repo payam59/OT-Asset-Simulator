@@ -40,6 +40,8 @@ namespace OLRTLabSim.Data
                         CREATE TABLE IF NOT EXISTS assets (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             name TEXT UNIQUE,
+                            asset_name TEXT,
+                            tag_name TEXT,
                             type TEXT,
                             sub_type TEXT DEFAULT 'Analog',
                             protocol TEXT,
@@ -102,7 +104,8 @@ namespace OLRTLabSim.Data
                             username TEXT UNIQUE NOT NULL,
                             password TEXT NOT NULL,
                             access_level TEXT NOT NULL,
-                            needs_password_change INTEGER DEFAULT 1
+                            needs_password_change INTEGER DEFAULT 1,
+                            expiry_date REAL
                         )";
                     cmd.ExecuteNonQuery();
 
@@ -131,7 +134,12 @@ namespace OLRTLabSim.Data
                             ad_group_rw TEXT DEFAULT '',
                             ad_group_ro TEXT DEFAULT '',
                             enable_audit_log INTEGER DEFAULT 1,
-                            enable_alarm_log INTEGER DEFAULT 1
+                            enable_alarm_log INTEGER DEFAULT 1,
+                            password_min_length INTEGER DEFAULT 8,
+                            require_uppercase INTEGER DEFAULT 1,
+                            require_lowercase INTEGER DEFAULT 1,
+                            require_number INTEGER DEFAULT 1,
+                            require_special INTEGER DEFAULT 1
                         )";
                     cmd.ExecuteNonQuery();
                 }
@@ -157,6 +165,39 @@ namespace OLRTLabSim.Data
                     }
                     if (!setCols.Contains("enable_alarm_log")) {
                         cmd.CommandText = "ALTER TABLE settings ADD COLUMN enable_alarm_log INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("password_min_length")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN password_min_length INTEGER DEFAULT 8";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_uppercase")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_uppercase INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_lowercase")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_lowercase INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_number")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_number INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_special")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_special INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    var userCols = new List<string>();
+                    cmd.CommandText = "PRAGMA table_info(users)";
+                    using (var r = cmd.ExecuteReader()) { while (r.Read()) userCols.Add(r["name"].ToString()); }
+                    if (!userCols.Contains("expiry_date"))
+                    {
+                        cmd.CommandText = "ALTER TABLE users ADD COLUMN expiry_date REAL";
                         cmd.ExecuteNonQuery();
                     }
                 }
@@ -211,6 +252,8 @@ namespace OLRTLabSim.Data
 
                 var migrations = new Dictionary<string, string>
                 {
+                    { "asset_name", "TEXT" },
+                    { "tag_name", "TEXT" },
                     { "sub_type", "TEXT DEFAULT 'Analog'" },
                     { "is_normally_open", "INTEGER DEFAULT 1" },
                     { "bacnet_port", "INTEGER DEFAULT 47808" },
@@ -251,6 +294,14 @@ namespace OLRTLabSim.Data
                             cmd.ExecuteNonQuery();
                         }
                     }
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE assets SET asset_name = name WHERE asset_name IS NULL OR TRIM(asset_name) = ''";
+                    cmd.ExecuteNonQuery();
+                    cmd.CommandText = "UPDATE assets SET tag_name = name WHERE tag_name IS NULL OR TRIM(tag_name) = ''";
+                    cmd.ExecuteNonQuery();
                 }
             }
 

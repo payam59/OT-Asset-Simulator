@@ -22,8 +22,11 @@
                 <button class="btn btn-success shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#bbmdModal">
                     <i class="fas fa-server me-2"></i>Manage BBMD
                 </button>
+                <button class="btn btn-info shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#importModal">
+                    <i class="fas fa-file-import me-2"></i>Import CSV
+                </button>
                 <button class="btn btn-primary shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#addModal">
-                    <i class="fas fa-plus me-2"></i>Provision Asset
+                    <i class="fas fa-plus me-2"></i>Add Tag
                 </button>
             </div>
         </div>
@@ -104,8 +107,10 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <label class="small fw-bold">Asset Name</label>
-                    <input type="text" id="name" class="form-control mb-2">
+                    <label class="small fw-bold">Asset / Device Name</label>
+                    <input type="text" id="asset_name" class="form-control mb-2" placeholder="e.g., UPS01">
+                    <label class="small fw-bold">Tag / Sensor Name</label>
+                    <input type="text" id="tag_name" class="form-control mb-2" placeholder="e.g., Voltage">
                     <div class="row mb-2">
                         <div class="col">
                             <label class="small fw-bold">Sub-Type</label>
@@ -367,6 +372,10 @@
                 <div class="modal-body">
                     <input type="hidden" id="edit_name">
                     <div class="row mb-2">
+                        <div class="col"><label class="small fw-bold">Asset / Device Name</label><input type="text" id="edit_asset_name" class="form-control"></div>
+                        <div class="col"><label class="small fw-bold">Tag / Sensor Name</label><input type="text" id="edit_tag_name" class="form-control"></div>
+                    </div>
+                    <div class="row mb-2">
                         <div class="col"><label class="small fw-bold">Sub-Type</label><select id="edit_sub_type" class="form-select" onchange="toggleFields('edit_')"><option value="Analog">Analog</option><option value="Digital">Digital</option></select></div>
                     </div>
 
@@ -601,6 +610,50 @@
                     </div>
                 </div>
                 <div class="modal-footer"><button class="btn btn-warning w-100" onclick="saveAssetEdit()">Apply Changes</button></div>
+            </div>
+        </div>
+    </div>
+
+
+    <div class="modal fade" id="assetTagsModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title" id="assetTagsTitle">Asset Tags</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="assetTagsList" class="list-group"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title">Import Tags from CSV</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="small fw-bold">Asset / Device Name</label>
+                    <input type="text" id="import_asset_name" class="form-control mb-2" placeholder="e.g., UPS01">
+
+                    <label class="small fw-bold">Protocol</label>
+                    <select id="import_protocol" class="form-select mb-2">
+                        <option value="bacnet">BACnet</option>
+                        <option value="modbus">Modbus</option>
+                        <option value="dnp3">DNP3</option>
+                    </select>
+
+                    <label class="small fw-bold">CSV File</label>
+                    <input type="file" id="import_file" class="form-control" accept=".csv,text/csv">
+                    <small class="text-muted">Template columns should include Tag Name and Address.</small>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-info w-100" onclick="window.importCsv()">Import</button>
+                </div>
             </div>
         </div>
     </div>
