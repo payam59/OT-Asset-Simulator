@@ -519,14 +519,19 @@ namespace OLRTLabSim.Services
             {
             }
 
-            if (context.Outstation is IDisposable outstationDisposable)
-            {
-                try { outstationDisposable.Dispose(); } catch { }
-            }
+            TryInvokeDispose(context.Outstation);
+            TryInvokeDispose(context.Server);
+        }
 
-            if (context.Server is IDisposable serverDisposable)
+        private static void TryInvokeDispose(object target)
+        {
+            try
             {
-                try { serverDisposable.Dispose(); } catch { }
+                var dispose = target.GetType().GetMethod("Dispose", Type.EmptyTypes);
+                dispose?.Invoke(target, null);
+            }
+            catch
+            {
             }
         }
 
