@@ -1,4 +1,4 @@
-# OT Asset Simulator (OLRTLabSim)
+# OT Asset Simulator
 
 OT Asset Simulator is a web-based industrial protocol simulation platform for creating and operating virtual OT assets without physical hardware. It combines a REST API, a browser UI, and background simulation/runtime managers for BACnet, Modbus TCP, and DNP3.
 
