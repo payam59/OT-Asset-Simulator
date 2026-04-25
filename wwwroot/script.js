@@ -419,8 +419,21 @@ window.openEditModal = async function(nameEncoded) {
 
     window.toggleFields('edit_');
     window.toggleProtocolFields('edit_');
-    bootstrap.Modal.getOrCreateInstance(document.getElementById('editModal')).show();
-};
+
+    const editModalEl = document.getElementById('editModal');
+    const editModal = bootstrap.Modal.getOrCreateInstance(editModalEl);
+    const assetTagsModalEl = document.getElementById('assetTagsModal');
+    const tagsAreOpen = assetTagsModalEl && assetTagsModalEl.classList.contains('show');
+
+    if (tagsAreOpen) {
+        const tagsModal = bootstrap.Modal.getOrCreateInstance(assetTagsModalEl);
+        assetTagsModalEl.addEventListener('hidden.bs.modal', () => {
+            editModal.show();
+        }, { once: true });
+        tagsModal.hide();
+    } else {
+        editModal.show();
+    }};
 
 window.saveAssetEdit = async function() {
     const name = document.getElementById('edit_name').value;
