@@ -594,7 +594,7 @@ namespace OLRTLabSim.Controllers
             int created = 0;
             var errors = new List<object>();
             var pendingDnp3Assets = new List<Asset>();
-            
+            var pendingModbusAssets = new List<Asset>();
             for (int i = 1; i < lines.Count; i++)
             {
                 var raw = lines[i];
@@ -718,12 +718,18 @@ namespace OLRTLabSim.Controllers
                 if (model.Protocol == "bacnet")
                     await _bacnetManager.RegisterAsset(model);
                 else if (model.Protocol == "modbus")
-                    await _modbusManager.RegisterAsset(model);
+                    pendingModbusAssets.Add(model);
                 else if (model.Protocol == "dnp3")
                     pendingDnp3Assets.Add(model);
                 PushToRuntime(model);
                 created++;
             }
+            
+            if (pendingModbusAssets.Count > 0)
+            {
+                await _modbusManager.RegisterAssetsBatch(pendingModbusAssets);
+            }
+
             if (pendingDnp3Assets.Count > 0)
             {
                 await _dnp3Manager.RegisterAssetsBatch(pendingDnp3Assets);
