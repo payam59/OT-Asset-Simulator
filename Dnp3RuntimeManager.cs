@@ -587,20 +587,7 @@ namespace OLRTLabSim.Services
             catch
             {
             }
-            try
-            {
-                context.Outstation.Dispose();
-            }
-            catch
-            {
-            }
-            try
-            {
-                context.Server.Dispose();
-            }
-            catch
-            {
-            }
+
         }
 
         public object Status()
