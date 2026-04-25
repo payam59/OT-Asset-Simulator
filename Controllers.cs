@@ -593,7 +593,8 @@ namespace OLRTLabSim.Controllers
 
             int created = 0;
             var errors = new List<object>();
-
+            var pendingDnp3Assets = new List<Asset>();
+            
             for (int i = 1; i < lines.Count; i++)
             {
                 var raw = lines[i];
@@ -719,10 +720,13 @@ namespace OLRTLabSim.Controllers
                 else if (model.Protocol == "modbus")
                     await _modbusManager.RegisterAsset(model);
                 else if (model.Protocol == "dnp3")
-                    await _dnp3Manager.RegisterAsset(model);
-
+                    pendingDnp3Assets.Add(model);
                 PushToRuntime(model);
                 created++;
+            }
+            if (pendingDnp3Assets.Count > 0)
+            {
+                await _dnp3Manager.RegisterAssetsBatch(pendingDnp3Assets);
             }
 
             Database.LogAudit("ASSET_IMPORT", User?.Identity?.Name ?? "Unknown", $"Imported {created} tags into asset {assetGroupName} via CSV", HttpContext.Connection.RemoteIpAddress?.ToString());
