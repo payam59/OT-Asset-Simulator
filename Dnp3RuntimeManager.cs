@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using dnp3;
 using dnp3.functional;
@@ -29,6 +30,7 @@ namespace OLRTLabSim.Services
             public required string Endpoint { get; init; }
             public required ushort OutstationAddress { get; init; }
             public required ushort MasterAddress { get; init; }
+            public int ShutdownState;
         }
 
         public class AssetMapping
@@ -381,7 +383,7 @@ namespace OLRTLabSim.Services
         {
             if (_servers.TryRemove(endpoint, out var existing))
             {
-                try { existing.Server.Shutdown(); } catch { }
+                ShutdownServerContext(existing);
             }
 
             var parts = endpoint.Split(':');
@@ -408,7 +410,7 @@ namespace OLRTLabSim.Services
                         _endpointAssets.TryRemove(endpoint, out _);
                         if (_servers.TryRemove(endpoint, out var ctx))
                         {
-                            try { ctx.Server.Shutdown(); } catch { }
+                            ShutdownServerContext(ctx);
                         }
                         StatusMessages[endpoint] = "stopped";
                     }
@@ -433,6 +435,7 @@ namespace OLRTLabSim.Services
             _pointValues[asset.Name] = val;
 
             if (!_servers.TryGetValue(mapping.Endpoint, out var server)) return;
+            if (Volatile.Read(ref server.ShutdownState) != 0) return;
 
             try
             {
@@ -496,11 +499,40 @@ namespace OLRTLabSim.Services
             {
                 if (_servers.TryRemove(endpoint, out var ctx))
                 {
-                    try { ctx.Server.Shutdown(); } catch { }
+                    ShutdownServerContext(ctx);
                 }
             }
 
             try { _runtime.Shutdown(); } catch { }
+        }
+
+        private static void ShutdownServerContext(ServerContext context)
+        {
+            if (Interlocked.Exchange(ref context.ShutdownState, 1) != 0)
+                return;
+
+            try
+            {
+                context.Server.Shutdown();
+            }
+            catch
+            {
+            }
+
+            TryInvokeDispose(context.Outstation);
+            TryInvokeDispose(context.Server);
+        }
+
+        private static void TryInvokeDispose(object target)
+        {
+            try
+            {
+                var dispose = target.GetType().GetMethod("Dispose", Type.EmptyTypes);
+                dispose?.Invoke(target, null);
+            }
+            catch
+            {
+            }
         }
 
         public object Status()
