@@ -378,6 +378,67 @@ namespace OLRTLabSim.Services
                 await EnsureEndpoint(ip, port);
             }
         }
+        public async Task RegisterAssetsBatch(IEnumerable<Asset> assets)
+        {
+            var touchedEndpoints = new Dictionary<string, (string ip, int port)>();
+
+            foreach (var asset in assets)
+            {
+                string name = asset.Name;
+                string ip = string.IsNullOrWhiteSpace(asset.Dnp3Ip) ? "0.0.0.0" : asset.Dnp3Ip;
+                int port = asset.Dnp3Port <= 0 ? 20000 : (int)asset.Dnp3Port;
+                string endpoint = $"{ip}:{port}";
+
+                if (_assetIndex.ContainsKey(name))
+                {
+                    await UnregisterAsset(name);
+                }
+
+                string pointClass = string.IsNullOrWhiteSpace(asset.Dnp3PointClass) ? "analog_output" : asset.Dnp3PointClass.Trim().ToLower();
+                if (!Profiles.TryGetValue(pointClass, out var profile))
+                    profile = Profiles["analog_output"];
+
+                ushort pointIndex = (ushort)Math.Max(0, asset.Address);
+                ushort outstationAddress = (ushort)(asset.Dnp3OutstationAddress <= 0 ? 10 : asset.Dnp3OutstationAddress);
+                ushort masterAddress = (ushort)(asset.Dnp3MasterAddress <= 0 ? 1 : asset.Dnp3MasterAddress);
+
+                var mapping = new AssetMapping
+                {
+                    Endpoint = endpoint,
+                    PointClass = pointClass,
+                    PointIndex = pointIndex,
+                    Group = profile.group,
+                    Variation = profile.variation,
+                    Writable = profile.writable,
+                    DbName = profile.db,
+                    OutstationAddress = outstationAddress,
+                    MasterAddress = masterAddress,
+                    KepwareAddress = $"{profile.group}.{profile.variation}.{pointIndex}.Value"
+                };
+
+                _assetIndex[name] = mapping;
+                _endpointAssets.AddOrUpdate(endpoint, new HashSet<string> { name }, (k, v) => { lock (v) v.Add(name); return v; });
+
+                double val = asset.CurrentValue;
+                if (pointClass is "binary_input" or "binary_output" or "binary_output_command")
+                    val = val >= 0.5 ? 1.0 : 0.0;
+                _pointValues[name] = val;
+
+                touchedEndpoints[endpoint] = (ip, port);
+            }
+
+            foreach (var endpoint in touchedEndpoints)
+            {
+                if (_servers.ContainsKey(endpoint.Key))
+                {
+                    await RebuildEndpoint(endpoint.Key);
+                }
+                else
+                {
+                    await EnsureEndpoint(endpoint.Value.ip, endpoint.Value.port);
+                }
+            }
+        }
 
         private async Task RebuildEndpoint(string endpoint)
         {
@@ -526,7 +587,20 @@ namespace OLRTLabSim.Services
             catch
             {
             }
-        
+            try
+            {
+                context.Outstation.Dispose();
+            }
+            catch
+            {
+            }
+            try
+            {
+                context.Server.Dispose();
+            }
+            catch
+            {
+            }
         }
 
         public object Status()
