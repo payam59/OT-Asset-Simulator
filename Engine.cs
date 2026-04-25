@@ -100,6 +100,8 @@ namespace OLRTLabSim.Engine
                                     Dnp3StaticVariation = Convert.ToInt64(reader["dnp3_static_variation"]),
                                     AlarmState = Convert.ToInt64(reader["alarm_state"]),
                                     AlarmMessage = reader["alarm_message"] != DBNull.Value ? reader["alarm_message"].ToString() : null,
+                                    AssetName = reader["asset_name"] != DBNull.Value ? reader["asset_name"].ToString() : reader["name"].ToString(),
+                                    TagName = reader["tag_name"] != DBNull.Value ? reader["tag_name"].ToString() : reader["name"].ToString(),
                                 });
                             }
                         }
