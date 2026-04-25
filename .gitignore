@@ -363,3 +363,5 @@ MigrationBackup/
 FodyWeavers.xsd
 lab_assets.db
 cookies.txt
+/auditlog.db
+/eventslog.db
