@@ -22,7 +22,7 @@ namespace OLRTLabSim.Services
 
         public bool Installed => true;
 
-            private sealed class ServerContext
+        private sealed class ServerContext
         {
             public required OutstationServer Server { get; init; }
             public required Dictionary<string, OutstationContext> Outstations { get; init; }
@@ -36,7 +36,6 @@ namespace OLRTLabSim.Services
             public required string Endpoint { get; init; }
             public required ushort OutstationAddress { get; init; }
             public required ushort MasterAddress { get; init; }
-            public int ShutdownState;
         }
 
         public class AssetMapping
@@ -145,7 +144,6 @@ namespace OLRTLabSim.Services
             private readonly ConcurrentDictionary<string, AssetMapping> _assetIndex;
             private readonly ConcurrentDictionary<string, double> _pointValues;
             private readonly string _endpoint;
-
             private readonly ushort _outstationAddress;
             private readonly ushort _masterAddress;
 
@@ -264,15 +262,13 @@ namespace OLRTLabSim.Services
                     .ToList();
             }
 
-
             if (endpointMappings.Count == 0) return;
-            
 
             try
             {
                 var server = OutstationServer.CreateTcpServer(_runtime, LinkErrorMode.Close, endpoint);
                 var outstations = new Dictionary<string, OutstationContext>();
-                
+
                 foreach (var addressGroup in endpointMappings.GroupBy(m => (m.OutstationAddress, m.MasterAddress)))
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
@@ -288,13 +284,13 @@ namespace OLRTLabSim.Services
                             StatusMessages[endpoint] = state == ConnectionState.Connected ? "connected" : "running";
                         }),
                         AddressFilter.Any());
-                    
+
                     outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
                     outstations[AddressKey(outstationAddress, masterAddress)] = new OutstationContext
-
                     {
                         Outstation = outstation,
                         ControlHandler = controlHandler,
+                        Endpoint = endpoint,
                         OutstationAddress = outstationAddress,
                         MasterAddress = masterAddress
                     };
@@ -332,7 +328,7 @@ namespace OLRTLabSim.Services
                     kv.Value.MasterAddress == masterAddress)
                 .Select(kv => kv)
                 .ToList();
-            
+
             foreach (var entry in assets)
             {
                 var name = entry.Key;
@@ -544,9 +540,11 @@ namespace OLRTLabSim.Services
             if (Volatile.Read(ref server.ShutdownState) != 0) return;
             var addressKey = AddressKey(mapping.OutstationAddress, mapping.MasterAddress);
             if (!server.Outstations.TryGetValue(addressKey, out var outstationCtx)) return;
+
             try
             {
-                outstationCtx.Outstation.Transaction(db =>                {
+                outstationCtx.Outstation.Transaction(db =>
+                {
                     if (pointClass is "analog_input")
                     {
                         db.UpdateAnalogInput(new AnalogInput(mapping.PointIndex, val, OnlineFlags(), NowTimestamp()), UpdateOptions.DetectEvent());
@@ -629,7 +627,8 @@ namespace OLRTLabSim.Services
                 foreach (var outstationContext in context.Outstations.Values)
                 {
                     GC.SuppressFinalize(outstationContext.Outstation);
-                }                GC.SuppressFinalize(context.Server);
+                }
+                GC.SuppressFinalize(context.Server);
             }
             catch
             {
