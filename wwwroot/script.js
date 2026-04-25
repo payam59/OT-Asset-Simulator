@@ -120,7 +120,7 @@ function renderAssets(tags) {
             <div class="card asset-card p-3 shadow-sm ${cardBorderClass}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="badge bg-dark">${protocolSummary || 'N/A'}</span>
-                    ${userRole === 'admin' || userRole === 'read_write' ? `<button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${asset.name}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>` : ''}
+                    ${userRole === 'admin' || userRole === 'read_write' ? `<button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${encodeURIComponent(asset.name)}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>` : ''}
                 </div>
                 ${alarmTags}
                 <div class="text-center">
@@ -134,7 +134,8 @@ function renderAssets(tags) {
     }).join('');
 }
 
-window.openAssetTagsModal = function(assetName) {
+window.openAssetTagsModal = function(assetNameEncoded) {
+    const assetName = decodeURIComponent(assetNameEncoded);
     const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('assetTagsModal'));
     document.getElementById('assetTagsTitle').textContent = `Asset Tags: ${assetName}`;
 
@@ -152,8 +153,8 @@ window.openAssetTagsModal = function(assetName) {
                     ${alarm ? `<div class="small text-danger">${t.alarm_message || 'Alarm active'}</div>` : ''}
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="window.openEditModal('${t.name}')"><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAsset('${t.name}')"><i class="fas fa-trash"></i></button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="window.openEditModal('${encodeURIComponent(t.name)}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAsset('${encodeURIComponent(t.name)}')"><i class="fas fa-trash"></i></button>
                 </div>
             </div>`;
         }).join('');
@@ -367,7 +368,8 @@ window.saveNewAsset = async function() {
     }
 };
 
-window.openEditModal = async function(name) {
+window.openEditModal = async function(nameEncoded) {
+    const name = decodeURIComponent(nameEncoded);
     const res = await fetch(`/api/assets/${encodeURIComponent(name)}`);
     if (!res.ok) return alert('Failed to load tag.');
     const a = await res.json();
@@ -480,7 +482,8 @@ window.saveAssetEdit = async function() {
     }
 };
 
-window.deleteAsset = async function(name) {
+window.deleteAsset = async function(nameEncoded) {
+    const name = decodeURIComponent(nameEncoded);
     if (!confirm(`Remove tag ${name}?`)) return;
     await fetch(`/api/assets/${name}`, { method: 'DELETE' });
     window.fetchAssets();

@@ -94,6 +94,7 @@ namespace OLRTLabSim.Models
         public string Username { get; set; }
         public string Password { get; set; }
         public string AccessLevel { get; set; }
+        public double? ExpiryDate { get; set; }
         public long NeedsPasswordChange { get; set; }
     }
 
@@ -118,6 +119,11 @@ namespace OLRTLabSim.Models
         public string AdGroupRo { get; set; }
         public long EnableAuditLog { get; set; }
         public long EnableAlarmLog { get; set; }
+        public long PasswordMinLength { get; set; }
+        public long RequireUppercase { get; set; }
+        public long RequireLowercase { get; set; }
+        public long RequireNumber { get; set; }
+        public long RequireSpecial { get; set; }
     }
 
     public class ChangePasswordRequest
@@ -131,5 +137,6 @@ namespace OLRTLabSim.Models
         public string Username { get; set; }
         public string Password { get; set; }
         public string AccessLevel { get; set; }
+        public double? ExpiryDate { get; set; }
     }
 }

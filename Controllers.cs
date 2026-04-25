@@ -13,6 +13,7 @@ using OLRTLabSim.Helpers;
 using System.Text.RegularExpressions;
 using System.DirectoryServices.Protocols;
 using System.Net;
+using Microsoft.Data.Sqlite;
 using System.IO;
 using System.Linq;
 
@@ -948,9 +949,49 @@ namespace OLRTLabSim.Controllers
             if (useSsl)
             {
                 ldap.SessionOptions.SecureSocketLayer = true;
-                ldap.SessionOptions.VerifyServerCertificate = (conn, cert) => true;
             }
             return ldap;
+        }
+
+        private static string BuildPasswordRegex(long minLength, long requireUpper, long requireLower, long requireNumber, long requireSpecial)
+        {
+            var parts = new List<string>();
+            if (requireUpper == 1) parts.Add("(?=.*[A-Z])");
+            if (requireLower == 1) parts.Add("(?=.*[a-z])");
+            if (requireNumber == 1) parts.Add("(?=.*\\d)");
+            if (requireSpecial == 1) parts.Add("(?=.*[^A-Za-z0-9])");
+            var min = Math.Max(6, minLength);
+            return "^" + string.Join("", parts) + $".{{{min},}}$";
+        }
+
+        private static bool ValidatePasswordBySettings(string password, long minLength, long requireUpper, long requireLower, long requireNumber, long requireSpecial)
+        {
+            if (string.IsNullOrEmpty(password)) return false;
+            if (password.Length < Math.Max(6, minLength)) return false;
+            if (requireUpper == 1 && !password.Any(char.IsUpper)) return false;
+            if (requireLower == 1 && !password.Any(char.IsLower)) return false;
+            if (requireNumber == 1 && !password.Any(char.IsDigit)) return false;
+            if (requireSpecial == 1 && !password.Any(c => !char.IsLetterOrDigit(c))) return false;
+            return true;
+        }
+
+        private (long MinLen, long Upper, long Lower, long Number, long Special, string Regex) LoadPasswordPolicy(SqliteConnection conn)
+        {
+            using var settingsCmd = conn.CreateCommand();
+            settingsCmd.CommandText = "SELECT password_min_length, require_uppercase, require_lowercase, require_number, require_special, password_complexity_regex FROM settings WHERE id = 1";
+            long minLen = 8, upper = 1, lower = 1, number = 1, special = 1;
+            string regex = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
+            using var reader = settingsCmd.ExecuteReader();
+            if (reader.Read())
+            {
+                minLen = reader["password_min_length"] == DBNull.Value ? 8 : Convert.ToInt64(reader["password_min_length"]);
+                upper = reader["require_uppercase"] == DBNull.Value ? 1 : Convert.ToInt64(reader["require_uppercase"]);
+                lower = reader["require_lowercase"] == DBNull.Value ? 1 : Convert.ToInt64(reader["require_lowercase"]);
+                number = reader["require_number"] == DBNull.Value ? 1 : Convert.ToInt64(reader["require_number"]);
+                special = reader["require_special"] == DBNull.Value ? 1 : Convert.ToInt64(reader["require_special"]);
+                regex = reader["password_complexity_regex"] == DBNull.Value ? regex : reader["password_complexity_regex"].ToString();
+            }
+            return (minLen, upper, lower, number, special, regex);
         }
 
         [Authorize(Roles = "admin")]
@@ -1065,7 +1106,7 @@ namespace OLRTLabSim.Controllers
             {
                 // Local DB Auth
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT id, username, password, access_level, needs_password_change FROM users WHERE username = @username";
+                cmd.CommandText = "SELECT id, username, password, access_level, needs_password_change, expiry_date FROM users WHERE username = @username";
                 cmd.Parameters.AddWithValue("@username", CryptoHelper.EncryptDeterministic(req.Username));
 
                 using var reader = cmd.ExecuteReader();
@@ -1076,6 +1117,14 @@ namespace OLRTLabSim.Controllers
 
                     if (plainPassword == req.Password)
                     {
+                        var expiry = reader.IsDBNull(5) ? (double?)null : Convert.ToDouble(reader.GetValue(5));
+                        var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+                        if (expiry.HasValue && nowUnix > expiry.Value)
+                        {
+                            Database.LogAudit("USER_LOGIN_EXPIRED", req.Username, "Login blocked due to expired local account", HttpContext.Connection.RemoteIpAddress?.ToString());
+                            return Unauthorized(new { error = "Account expired. Contact administrator." });
+                        }
+
                         accessLevel = CryptoHelper.DecryptDeterministic(reader.GetString(3));
                         needsChange = reader.GetInt64(4);
                         userId = reader.GetInt64(0);
@@ -1128,20 +1177,16 @@ namespace OLRTLabSim.Controllers
             using var conn = Database.GetConnection();
 
             // Get settings
-            using var settingsCmd = conn.CreateCommand();
-            settingsCmd.CommandText = "SELECT password_complexity_regex, password_history_count FROM settings WHERE id = 1";
-            string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
+            var policy = LoadPasswordPolicy(conn);
             long historyCount = 3;
-            using (var sReader = settingsCmd.ExecuteReader())
+            using (var historyCmd = conn.CreateCommand())
             {
-                if (sReader.Read())
-                {
-                    regexPattern = sReader.GetString(0);
-                    historyCount = sReader.GetInt64(1);
-                }
+                historyCmd.CommandText = "SELECT password_history_count FROM settings WHERE id = 1";
+                var val = historyCmd.ExecuteScalar();
+                historyCount = val == null || val == DBNull.Value ? 3 : Convert.ToInt64(val);
             }
 
-            if (!Regex.IsMatch(req.NewPassword, regexPattern))
+            if (!ValidatePasswordBySettings(req.NewPassword, policy.MinLen, policy.Upper, policy.Lower, policy.Number, policy.Special))
             {
                 return BadRequest(new { error = "Password does not meet complexity requirements." });
             }
@@ -1221,7 +1266,7 @@ namespace OLRTLabSim.Controllers
             var users = new List<object>();
             using var conn = Database.GetConnection();
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SELECT id, username, access_level, needs_password_change FROM users";
+            cmd.CommandText = "SELECT id, username, access_level, needs_password_change, expiry_date FROM users";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -1229,7 +1274,8 @@ namespace OLRTLabSim.Controllers
                     id = reader.GetInt64(0),
                     username = CryptoHelper.DecryptDeterministic(reader.GetString(1)),
                     access_level = CryptoHelper.DecryptDeterministic(reader.GetString(2)),
-                    needs_password_change = reader.GetInt64(3) == 1
+                    needs_password_change = reader.GetInt64(3) == 1,
+                    expiry_date = reader.IsDBNull(4) ? null : (double?)Convert.ToDouble(reader.GetValue(4))
                 });
             }
             return Ok(users);
@@ -1241,25 +1287,20 @@ namespace OLRTLabSim.Controllers
         public IActionResult CreateUser([FromBody] UserCreateRequest req)
         {
             using var conn = Database.GetConnection();
-            using var settingsCmd = conn.CreateCommand();
-            settingsCmd.CommandText = "SELECT password_complexity_regex FROM settings WHERE id = 1";
-            string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
-            using (var sReader = settingsCmd.ExecuteReader())
-            {
-                if (sReader.Read()) regexPattern = sReader.GetString(0);
-            }
+            var policy = LoadPasswordPolicy(conn);
 
-            if (!Regex.IsMatch(req.Password, regexPattern))
+            if (!ValidatePasswordBySettings(req.Password, policy.MinLen, policy.Upper, policy.Lower, policy.Number, policy.Special))
             {
                 return BadRequest(new { error = "Password does not meet complexity requirements." });
             }
 
             using var cmd = conn.CreateCommand();
-            cmd.CommandText = @"INSERT INTO users (username, password, access_level, needs_password_change)
-                                VALUES (@user, @pass, @access, 1)";
+            cmd.CommandText = @"INSERT INTO users (username, password, access_level, needs_password_change, expiry_date)
+                                VALUES (@user, @pass, @access, 1, @expiry)";
             cmd.Parameters.AddWithValue("@user", CryptoHelper.EncryptDeterministic(req.Username));
             cmd.Parameters.AddWithValue("@pass", CryptoHelper.EncryptRandom(req.Password));
             cmd.Parameters.AddWithValue("@access", CryptoHelper.EncryptDeterministic(req.AccessLevel));
+            cmd.Parameters.AddWithValue("@expiry", req.ExpiryDate.HasValue ? req.ExpiryDate.Value : (object)DBNull.Value);
             cmd.ExecuteNonQuery();
             Database.LogAudit("USER_CREATE", User?.Identity?.Name ?? "Unknown", $"Created user {req.Username}", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });
@@ -1281,15 +1322,9 @@ namespace OLRTLabSim.Controllers
                 if (encUsername != null) targetUsername = CryptoHelper.DecryptDeterministic(encUsername);
             }
 
-            using var settingsCmd = conn.CreateCommand();
-            settingsCmd.CommandText = "SELECT password_complexity_regex FROM settings WHERE id = 1";
-            string regexPattern = @"^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$";
-            using (var sReader = settingsCmd.ExecuteReader())
-            {
-                if (sReader.Read()) regexPattern = sReader.GetString(0);
-            }
+            var policy = LoadPasswordPolicy(conn);
 
-            if (!Regex.IsMatch(req.Password, regexPattern))
+            if (!ValidatePasswordBySettings(req.Password, policy.MinLen, policy.Upper, policy.Lower, policy.Number, policy.Special))
             {
                 return BadRequest(new { error = "Password does not meet complexity requirements." });
             }
@@ -1328,7 +1363,12 @@ namespace OLRTLabSim.Controllers
                     AdGroupRw = reader.GetString(reader.GetOrdinal("ad_group_rw")),
                     AdGroupRo = reader.GetString(reader.GetOrdinal("ad_group_ro")),
                     EnableAuditLog = reader.GetInt64(reader.GetOrdinal("enable_audit_log")),
-                    EnableAlarmLog = reader.GetInt64(reader.GetOrdinal("enable_alarm_log"))
+                    EnableAlarmLog = reader.GetInt64(reader.GetOrdinal("enable_alarm_log")),
+                    PasswordMinLength = reader.GetInt64(reader.GetOrdinal("password_min_length")),
+                    RequireUppercase = reader.GetInt64(reader.GetOrdinal("require_uppercase")),
+                    RequireLowercase = reader.GetInt64(reader.GetOrdinal("require_lowercase")),
+                    RequireNumber = reader.GetInt64(reader.GetOrdinal("require_number")),
+                    RequireSpecial = reader.GetInt64(reader.GetOrdinal("require_special"))
                 });
             }
             return NotFound();
@@ -1351,10 +1391,19 @@ namespace OLRTLabSim.Controllers
                 ad_service_password = @p8,
                 ad_group_admin = @p9,
                 ad_group_rw = @p10,
-                ad_group_ro = @p11, enable_audit_log = @p12, enable_alarm_log = @p13
+                ad_group_ro = @p11,
+                enable_audit_log = @p12,
+                enable_alarm_log = @p13,
+                password_min_length = @p14,
+                require_uppercase = @p15,
+                require_lowercase = @p16,
+                require_number = @p17,
+                require_special = @p18
                 WHERE id = 1";
+            var minLen = req.PasswordMinLength > 0 ? req.PasswordMinLength : 8;
+            var regex = BuildPasswordRegex(minLen, req.RequireUppercase, req.RequireLowercase, req.RequireNumber, req.RequireSpecial);
             cmd.Parameters.AddWithValue("@p1", req.SessionTimeoutMinutes);
-            cmd.Parameters.AddWithValue("@p2", req.PasswordComplexityRegex ?? "");
+            cmd.Parameters.AddWithValue("@p2", regex);
             cmd.Parameters.AddWithValue("@p3", req.PasswordHistoryCount);
             cmd.Parameters.AddWithValue("@p4", req.AdEnabled);
             cmd.Parameters.AddWithValue("@p5", req.AdServer ?? "");
@@ -1366,6 +1415,11 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@p11", req.AdGroupRo ?? "");
             cmd.Parameters.AddWithValue("@p12", req.EnableAuditLog);
             cmd.Parameters.AddWithValue("@p13", req.EnableAlarmLog);
+            cmd.Parameters.AddWithValue("@p14", minLen);
+            cmd.Parameters.AddWithValue("@p15", req.RequireUppercase);
+            cmd.Parameters.AddWithValue("@p16", req.RequireLowercase);
+            cmd.Parameters.AddWithValue("@p17", req.RequireNumber);
+            cmd.Parameters.AddWithValue("@p18", req.RequireSpecial);
             cmd.ExecuteNonQuery();
             Database.LogAudit("SETTINGS_UPDATE", User?.Identity?.Name ?? "Unknown", $"Updated system settings", HttpContext.Connection.RemoteIpAddress?.ToString());
             return Ok(new { success = true });

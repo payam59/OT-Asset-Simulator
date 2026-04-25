@@ -13,7 +13,7 @@
             <h2 class="fw-bold"><i class="fas fa-shield-alt me-2"></i>Security Settings</h2>
             <div class="d-flex gap-2">
                 <a class="btn btn-outline-secondary" href="/admin">
-                    <i class="fas fa-arrow-left me-2"></i>Back to Users
+                    <i class="fas fa-arrow-left me-2"></i>Back to Admin Center
                 </a>
             </div>
         </div>
@@ -32,10 +32,22 @@
                         <small class="text-muted">Number of previous passwords that cannot be reused.</small>
                     </div>
                 </div>
-                <div class="mb-3">
-                    <label class="form-label">Password Complexity Regex</label>
-                    <input type="text" id="passwordRegex" class="form-control" value="^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d@$!%*#?&]{8,}$">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label">Password Complexity</label>
+                        <select id="passwordProfile" class="form-select">
+                            <option value="letters_numbers">Letters + Numbers</option>
+                            <option value="upper_lower_number">Upper + Lower + Number</option>
+                            <option value="upper_lower_number_special">Upper + Lower + Number + Special (Recommended)</option>
+                            <option value="lower_number_special">Lower + Number + Special</option>
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label">Minimum Password Length</label>
+                        <input type="number" id="passwordMinLength" class="form-control" min="6" max="64" value="8">
+                    </div>
                 </div>
+                <div class="small text-muted">Complexity policy is managed through the dropdown + minimum length (no manual regex needed).</div>
             </div>
         </div>
 
@@ -120,13 +132,39 @@
     </div>
 
     <script>
+        function getProfileFromSettings(data) {
+            const upper = (data.require_uppercase ?? 1) === 1;
+            const lower = (data.require_lowercase ?? 1) === 1;
+            const number = (data.require_number ?? 1) === 1;
+            const special = (data.require_special ?? 1) === 1;
+
+            if (upper && lower && number && special) return 'upper_lower_number_special';
+            if (upper && lower && number && !special) return 'upper_lower_number';
+            if (!upper && lower && number && special) return 'lower_number_special';
+            return 'letters_numbers';
+        }
+
+        function getRuleFlagsFromProfile(profile) {
+            switch (profile) {
+                case 'upper_lower_number_special':
+                    return { require_uppercase: 1, require_lowercase: 1, require_number: 1, require_special: 1 };
+                case 'upper_lower_number':
+                    return { require_uppercase: 1, require_lowercase: 1, require_number: 1, require_special: 0 };
+                case 'lower_number_special':
+                    return { require_uppercase: 0, require_lowercase: 1, require_number: 1, require_special: 1 };
+                default:
+                    return { require_uppercase: 0, require_lowercase: 1, require_number: 1, require_special: 0 };
+            }
+        }
+
         async function loadSettings() {
             try {
                 const res = await fetch('/api/auth/settings');
                 if (res.ok) {
                     const data = await res.json();
                     document.getElementById('sessionTimeout').value = data.session_timeout_minutes ?? 60;
-                    document.getElementById('passwordRegex').value = data.password_complexity_regex ?? "^(?=.*[A-Za-z])(?=.*\\d)[A-Za-z\\d@$!%*#?&]{8,}$";
+                    document.getElementById('passwordProfile').value = getProfileFromSettings(data);
+                    document.getElementById('passwordMinLength').value = data.password_min_length ?? 8;
                     document.getElementById('passwordHistory').value = data.password_history_count ?? 3;
                     document.getElementById('adEnabled').checked = data.ad_enabled === 1;
                     document.getElementById('adServer').value = data.ad_server ?? "";
@@ -175,7 +213,8 @@
         async function saveSettings() {
             const payload = {
                 session_timeout_minutes: parseInt(document.getElementById('sessionTimeout').value),
-                password_complexity_regex: document.getElementById('passwordRegex').value,
+                ...getRuleFlagsFromProfile(document.getElementById('passwordProfile').value),
+                password_min_length: parseInt(document.getElementById('passwordMinLength').value) || 8,
                 password_history_count: parseInt(document.getElementById('passwordHistory').value),
                 ad_enabled: document.getElementById('adEnabled').checked ? 1 : 0,
                 ad_server: document.getElementById('adServer').value,

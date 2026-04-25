@@ -112,6 +112,23 @@ try
         await context.Response.SendFileAsync("Pages/admin.html");
     });
 
+
+    app.MapGet("/admin/users", async context =>
+    {
+        if (!context.User.Identity?.IsAuthenticated ?? true)
+        {
+            context.Response.Redirect("/login");
+            return;
+        }
+        if (!context.User.IsInRole("admin"))
+        {
+            context.Response.Redirect("/");
+            return;
+        }
+        context.Response.ContentType = "text/html";
+        await context.Response.SendFileAsync("Pages/users.html");
+    });
+
     // Explicitly map / to the index page in Pages
     app.MapGet("/", async context =>
     {

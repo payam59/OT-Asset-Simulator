@@ -104,7 +104,8 @@ namespace OLRTLabSim.Data
                             username TEXT UNIQUE NOT NULL,
                             password TEXT NOT NULL,
                             access_level TEXT NOT NULL,
-                            needs_password_change INTEGER DEFAULT 1
+                            needs_password_change INTEGER DEFAULT 1,
+                            expiry_date REAL
                         )";
                     cmd.ExecuteNonQuery();
 
@@ -133,7 +134,12 @@ namespace OLRTLabSim.Data
                             ad_group_rw TEXT DEFAULT '',
                             ad_group_ro TEXT DEFAULT '',
                             enable_audit_log INTEGER DEFAULT 1,
-                            enable_alarm_log INTEGER DEFAULT 1
+                            enable_alarm_log INTEGER DEFAULT 1,
+                            password_min_length INTEGER DEFAULT 8,
+                            require_uppercase INTEGER DEFAULT 1,
+                            require_lowercase INTEGER DEFAULT 1,
+                            require_number INTEGER DEFAULT 1,
+                            require_special INTEGER DEFAULT 1
                         )";
                     cmd.ExecuteNonQuery();
                 }
@@ -159,6 +165,39 @@ namespace OLRTLabSim.Data
                     }
                     if (!setCols.Contains("enable_alarm_log")) {
                         cmd.CommandText = "ALTER TABLE settings ADD COLUMN enable_alarm_log INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("password_min_length")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN password_min_length INTEGER DEFAULT 8";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_uppercase")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_uppercase INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_lowercase")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_lowercase INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_number")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_number INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                    if (!setCols.Contains("require_special")) {
+                        cmd.CommandText = "ALTER TABLE settings ADD COLUMN require_special INTEGER DEFAULT 1";
+                        cmd.ExecuteNonQuery();
+                    }
+                }
+
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    var userCols = new List<string>();
+                    cmd.CommandText = "PRAGMA table_info(users)";
+                    using (var r = cmd.ExecuteReader()) { while (r.Read()) userCols.Add(r["name"].ToString()); }
+                    if (!userCols.Contains("expiry_date"))
+                    {
+                        cmd.CommandText = "ALTER TABLE users ADD COLUMN expiry_date REAL";
                         cmd.ExecuteNonQuery();
                     }
                 }
