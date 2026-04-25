@@ -4,6 +4,7 @@ let shouldReconnectSocket = true;
 let reconnectTimer = null;
 let userRole = 'read_only';
 let latestTags = [];
+let returnToAssetTagsAfterEdit = false;
 
 function renderAlarms(alarms) {
     const alarmList = document.getElementById('alarmList');
@@ -484,12 +485,24 @@ window.saveAssetEdit = async function() {
         dnp3_static_variation: parseInt(document.getElementById('edit_dnp3_static_variation').value) || 0
     };
 
+    const returnAssetName = (document.getElementById('edit_asset_name').value || '').trim();
+    
     const res = await fetch(`/api/assets/${encodeURIComponent(name)}`, {
         method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data)
     });
     if (res.ok) {
-        bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-        window.fetchAssets();
+        await window.fetchAssets();
+        const editModalEl = document.getElementById('editModal');
+        const editModal = bootstrap.Modal.getInstance(editModalEl);
+
+        if (returnToAssetTagsAfterEdit && returnAssetName) {
+            editModalEl.addEventListener('hidden.bs.modal', () => {
+                window.openAssetTagsModal(encodeURIComponent(returnAssetName));
+            }, { once: true });
+        }
+
+        editModal?.hide();
+        returnToAssetTagsAfterEdit = false;
     } else {
         alert('Failed to update tag: ' + (await res.text()));
     }
