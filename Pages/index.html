@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Asset Control Center</title>
+    <title>Control Center</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="/style.css">
@@ -11,23 +11,23 @@
 <body class="bg-light">
     <div class="container py-5">
         <div class="d-flex justify-content-between align-items-center mb-5">
-            <h2 class="fw-bold"><i class="fas fa-network-wired me-2"></i>Asset Control Center</h2>
+            <h2 class="fw-bold"><i class="fas fa-network-wired me-2"></i>Control Center</h2>
             <div class="d-flex gap-2">
                 <a class="btn btn-outline-info shadow-sm px-3" href="/status">
                     <i class="fas fa-heartbeat me-2"></i>Service Status
                 </a>
-                <a class="btn btn-warning shadow-sm px-3 d-none" id="manageUsersBtn" href="/admin"><i class="fas fa-users-cog me-2"></i>Manage Users</a>
-                <a class="btn btn-dark shadow-sm px-3 d-none" id="viewLogsBtn" href="/logs"><i class="fas fa-list-alt me-2"></i>Logs</a>
-                <button class="btn btn-secondary shadow-sm px-3" onclick="logout()"><i class="fas fa-sign-out-alt me-2"></i>Logout</button>
+                <button class="btn btn-primary shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#addModal">
+                    <i class="fas fa-plus me-2"></i>Add Asset
+                </button>
                 <button class="btn btn-success shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#bbmdModal">
                     <i class="fas fa-server me-2"></i>Manage BBMD
                 </button>
                 <button class="btn btn-info shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#importModal">
                     <i class="fas fa-file-import me-2"></i>Import Tags from CSV
                 </button>
-                <button class="btn btn-primary shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#addModal">
-                    <i class="fas fa-plus me-2"></i>Add Asset
-                </button>
+                <a class="btn btn-warning shadow-sm px-3 d-none" id="manageUsersBtn" href="/admin"><i class="fas fa-users-cog me-2"></i>Setting</a>
+                <a class="btn btn-dark shadow-sm px-3 d-none" id="viewLogsBtn" href="/logs"><i class="fas fa-list-alt me-2"></i>Logs</a>
+                <button class="btn btn-secondary shadow-sm px-3" onclick="logout()"><i class="fas fa-sign-out-alt me-2"></i>Logout</button>
             </div>
         </div>
 

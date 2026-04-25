@@ -217,6 +217,7 @@ function renderInjectModalList(assetName) {
                     <div class="btn-group">
                         <button class="btn btn-sm btn-outline-success" onclick="window.injectDigitalValue('${jsStringEscape(encodeURIComponent(t.name))}', 1)">ON</button>
                         <button class="btn btn-sm btn-outline-danger" onclick="window.injectDigitalValue('${jsStringEscape(encodeURIComponent(t.name))}', 0)">OFF</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="window.releaseTagToAuto('${jsStringEscape(encodeURIComponent(t.name))}')">Auto</button>
                     </div>
                 </div>
             </div>`;
@@ -233,6 +234,7 @@ function renderInjectModalList(assetName) {
                     <button class="btn btn-sm btn-primary" onclick="window.injectAnalogValue('${jsStringEscape(encodeURIComponent(t.name))}')">
                         <i class="fas fa-bolt me-1"></i>Inject
                     </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="window.releaseTagToAuto('${jsStringEscape(encodeURIComponent(t.name))}')">Auto</button>
                 </div>
             </div>
         </div>`;
@@ -273,6 +275,18 @@ window.injectAnalogValue = async function(tagNameEncoded) {
     const response = await fetch(`/api/override/${encodeURIComponent(tagName)}?value=${numericValue}`, { method: 'PUT' });
     if (!response.ok) {
         alert(`Failed to inject ${tagName}: ${await response.text()}`);
+        return;
+    }
+
+    await window.fetchAssets();
+    renderInjectModalList(selectedAssetForInjectModal);
+};
+
+window.releaseTagToAuto = async function(tagNameEncoded) {
+    const tagName = decodeURIComponent(tagNameEncoded);
+    const response = await fetch(`/api/release/${encodeURIComponent(tagName)}`, { method: 'PUT' });
+    if (!response.ok) {
+        alert(`Failed to enable auto mode for ${tagName}: ${await response.text()}`);
         return;
     }
 
