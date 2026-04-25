@@ -25,12 +25,17 @@ namespace OLRTLabSim.Services
         private sealed class ServerContext
         {
             public required OutstationServer Server { get; init; }
+            public required Dictionary<string, OutstationContext> Outstations { get; init; }
+            public int ShutdownState;
+        }
+
+        private sealed class OutstationContext
+        {
             public required Outstation Outstation { get; init; }
             public required ControlHandlerImpl ControlHandler { get; init; }
             public required string Endpoint { get; init; }
             public required ushort OutstationAddress { get; init; }
             public required ushort MasterAddress { get; init; }
-            public int ShutdownState;
         }
 
         public class AssetMapping
@@ -139,12 +144,21 @@ namespace OLRTLabSim.Services
             private readonly ConcurrentDictionary<string, AssetMapping> _assetIndex;
             private readonly ConcurrentDictionary<string, double> _pointValues;
             private readonly string _endpoint;
+            private readonly ushort _outstationAddress;
+            private readonly ushort _masterAddress;
 
-            public ControlHandlerImpl(ConcurrentDictionary<string, AssetMapping> assetIndex, ConcurrentDictionary<string, double> pointValues, string endpoint)
+            public ControlHandlerImpl(
+                ConcurrentDictionary<string, AssetMapping> assetIndex,
+                ConcurrentDictionary<string, double> pointValues,
+                string endpoint,
+                ushort outstationAddress,
+                ushort masterAddress)
             {
                 _assetIndex = assetIndex;
                 _pointValues = pointValues;
                 _endpoint = endpoint;
+                _outstationAddress = outstationAddress;
+                _masterAddress = masterAddress;
             }
 
             public void BeginFragment() { }
@@ -152,12 +166,21 @@ namespace OLRTLabSim.Services
 
             private bool SupportsBinary(ushort index)
             {
-                return _assetIndex.Values.Any(m => m.Endpoint == _endpoint && m.PointIndex == index && (m.PointClass == "binary_output" || m.PointClass == "binary_output_command"));
+                return _assetIndex.Values.Any(m =>
+                    m.Endpoint == _endpoint &&
+                    m.OutstationAddress == _outstationAddress &&
+                    m.MasterAddress == _masterAddress &&
+                    m.PointIndex == index &&
+                    (m.PointClass == "binary_output" || m.PointClass == "binary_output_command"));
             }
 
             private bool SupportsAnalog(ushort index)
             {
-                return _assetIndex.Values.Any(m => m.Endpoint == _endpoint && m.PointIndex == index &&
+                return _assetIndex.Values.Any(m =>
+                    m.Endpoint == _endpoint &&
+                    m.OutstationAddress == _outstationAddress &&
+                    m.MasterAddress == _masterAddress &&
+                    m.PointIndex == index &&
                     (m.PointClass == "analog_output" || m.PointClass == "analog_output_command"));
             }
 
@@ -166,7 +189,10 @@ namespace OLRTLabSim.Services
                 foreach (var entry in _assetIndex)
                 {
                     var mapping = entry.Value;
-                    if (mapping.Endpoint != _endpoint || mapping.PointIndex != index) continue;
+                    if (mapping.Endpoint != _endpoint ||
+                        mapping.OutstationAddress != _outstationAddress ||
+                        mapping.MasterAddress != _masterAddress ||
+                        mapping.PointIndex != index) continue;
                     _pointValues[entry.Key] = value;
                 }
             }
@@ -227,60 +253,55 @@ namespace OLRTLabSim.Services
             if (!_endpointAssets.TryGetValue(endpoint, out var assetsAtEndpoint) || assetsAtEndpoint.Count == 0)
                 return;
 
-            AssetMapping firstMapping;
+            List<AssetMapping> endpointMappings;
             lock (assetsAtEndpoint)
             {
-                firstMapping = _assetIndex[assetsAtEndpoint.First()];
+                endpointMappings = assetsAtEndpoint
+                    .Where(assetName => _assetIndex.ContainsKey(assetName))
+                    .Select(assetName => _assetIndex[assetName])
+                    .ToList();
             }
 
-            var mixedAddress = false;
-            lock (assetsAtEndpoint)
-            {
-                foreach (var assetName in assetsAtEndpoint)
-                {
-                    var mapping = _assetIndex[assetName];
-                    if (mapping.MasterAddress != firstMapping.MasterAddress || mapping.OutstationAddress != firstMapping.OutstationAddress)
-                    {
-                        mixedAddress = true;
-                        break;
-                    }
-                }
-            }
-
-            if (mixedAddress)
-            {
-                StatusMessages[endpoint] = "error: mixed master/outstation addresses on same endpoint";
-                return;
-            }
+            if (endpointMappings.Count == 0) return;
 
             try
             {
                 var server = OutstationServer.CreateTcpServer(_runtime, LinkErrorMode.Close, endpoint);
-                var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint);
+                var outstations = new Dictionary<string, OutstationContext>();
 
-                var outstation = server.AddOutstation(
-                    new OutstationConfig(firstMapping.OutstationAddress, firstMapping.MasterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
+                foreach (var addressGroup in endpointMappings.GroupBy(m => (m.OutstationAddress, m.MasterAddress)))
+                {
+                    var outstationAddress = addressGroup.Key.OutstationAddress;
+                    var masterAddress = addressGroup.Key.MasterAddress;
+                    var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint, outstationAddress, masterAddress);
+                    var outstation = server.AddOutstation(
+                        new OutstationConfig(outstationAddress, masterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
+                        new OutstationAppImpl(),
+                        new OutstationInfoImpl(),
+                        controlHandler,
+                        ConnectionStateListener.create(state =>
+                        {
+                            StatusMessages[endpoint] = state == ConnectionState.Connected ? "connected" : "running";
+                        }),
+                        AddressFilter.Any());
 
-                    new OutstationAppImpl(),
-                    new OutstationInfoImpl(),
-                    controlHandler,
-                    ConnectionStateListener.create(state =>
+                    outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
+                    outstations[AddressKey(outstationAddress, masterAddress)] = new OutstationContext
                     {
-                        StatusMessages[endpoint] = state == ConnectionState.Connected ? "connected" : "running";
-                    }),
-                    AddressFilter.Any());
+                        Outstation = outstation,
+                        ControlHandler = controlHandler,
+                        Endpoint = endpoint,
+                        OutstationAddress = outstationAddress,
+                        MasterAddress = masterAddress
+                    };
+                }
 
-                outstation.Transaction(db => InitializeDatabase(db, endpoint));
                 server.Bind();
 
                 _servers[endpoint] = new ServerContext
                 {
                     Server = server,
-                    Outstation = outstation,
-                    ControlHandler = controlHandler,
-                    Endpoint = endpoint,
-                    OutstationAddress = firstMapping.OutstationAddress,
-                    MasterAddress = firstMapping.MasterAddress
+                    Outstations = outstations
                 };
 
                 StatusMessages[endpoint] = "running";
@@ -293,9 +314,20 @@ namespace OLRTLabSim.Services
             await Task.CompletedTask;
         }
 
-        private void InitializeDatabase(Database db, string endpoint)
+        private static string AddressKey(ushort outstationAddress, ushort masterAddress)
         {
-            var assets = _assetIndex.Where(kv => kv.Value.Endpoint == endpoint).Select(kv => kv).ToList();
+            return $"{outstationAddress}:{masterAddress}";
+        }
+
+        private void InitializeDatabase(Database db, string endpoint, ushort outstationAddress, ushort masterAddress)
+        {
+            var assets = _assetIndex
+                .Where(kv =>
+                    kv.Value.Endpoint == endpoint &&
+                    kv.Value.OutstationAddress == outstationAddress &&
+                    kv.Value.MasterAddress == masterAddress)
+                .Select(kv => kv)
+                .ToList();
 
             foreach (var entry in assets)
             {
@@ -506,10 +538,12 @@ namespace OLRTLabSim.Services
 
             if (!_servers.TryGetValue(mapping.Endpoint, out var server)) return;
             if (Volatile.Read(ref server.ShutdownState) != 0) return;
+            var addressKey = AddressKey(mapping.OutstationAddress, mapping.MasterAddress);
+            if (!server.Outstations.TryGetValue(addressKey, out var outstationCtx)) return;
 
             try
             {
-                server.Outstation.Transaction(db =>
+                outstationCtx.Outstation.Transaction(db =>
                 {
                     if (pointClass is "analog_input")
                     {
@@ -590,7 +624,10 @@ namespace OLRTLabSim.Services
             }
             try
             {
-                GC.SuppressFinalize(context.Outstation);
+                foreach (var outstationContext in context.Outstations.Values)
+                {
+                    GC.SuppressFinalize(outstationContext.Outstation);
+                }
                 GC.SuppressFinalize(context.Server);
             }
             catch
