@@ -26,6 +26,7 @@ namespace OLRTLabSim.Services
         {
             public required OutstationServer Server { get; init; }
             public required Dictionary<string, OutstationContext> Outstations { get; init; }
+            public required string PrimaryAddressKey { get; init; }
             public int ShutdownState;
         }
 
@@ -268,8 +269,20 @@ namespace OLRTLabSim.Services
             {
                 var server = OutstationServer.CreateTcpServer(_runtime, LinkErrorMode.Close, endpoint);
                 var outstations = new Dictionary<string, OutstationContext>();
+                var addressGroups = endpointMappings
+                    .GroupBy(m => (m.OutstationAddress, m.MasterAddress))
+                    .OrderByDescending(g => g.Count())
+                    .ToList();
+                var selectedGroups = addressGroups.Take(1).ToList();
+                var primaryAddress = selectedGroups[0].Key;
 
-                foreach (var addressGroup in endpointMappings.GroupBy(m => (m.OutstationAddress, m.MasterAddress)))
+                if (addressGroups.Count > 1)
+                {
+                    StatusMessages[endpoint] =
+                        $"warning: mixed master/outstation addresses detected; serving primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress} on this endpoint";
+                }
+
+                foreach (var addressGroup in selectedGroups)
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
                     var masterAddress = addressGroup.Key.MasterAddress;
@@ -301,7 +314,8 @@ namespace OLRTLabSim.Services
                 _servers[endpoint] = new ServerContext
                 {
                     Server = server,
-                    Outstations = outstations
+                    Outstations = outstations,
+                    PrimaryAddressKey = AddressKey(primaryAddress.OutstationAddress, primaryAddress.MasterAddress)
                 };
 
                 StatusMessages[endpoint] = "running";
@@ -539,7 +553,10 @@ namespace OLRTLabSim.Services
             if (!_servers.TryGetValue(mapping.Endpoint, out var server)) return;
             if (Volatile.Read(ref server.ShutdownState) != 0) return;
             var addressKey = AddressKey(mapping.OutstationAddress, mapping.MasterAddress);
-            if (!server.Outstations.TryGetValue(addressKey, out var outstationCtx)) return;
+            if (!server.Outstations.TryGetValue(addressKey, out var outstationCtx))
+            {
+                if (!server.Outstations.TryGetValue(server.PrimaryAddressKey, out outstationCtx)) return;
+            }
 
             try
             {
