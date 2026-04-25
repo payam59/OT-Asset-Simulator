@@ -932,19 +932,41 @@ namespace OLRTLabSim.Controllers
     {
         private LdapConnection CreateLdapConnection(string adServer)
         {
-            string host = adServer;
-            bool useSsl = false;
-            if (adServer.StartsWith("ldaps://", StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrWhiteSpace(adServer))
+                throw new ArgumentException("AD server is required.");
+
+            var input = adServer.Trim();
+            bool useSsl = input.StartsWith("ldaps://", StringComparison.OrdinalIgnoreCase);
+            string hostPart = input;
+
+            if (input.StartsWith("ldap://", StringComparison.OrdinalIgnoreCase))
+                hostPart = input.Substring(7);
+            else if (input.StartsWith("ldaps://", StringComparison.OrdinalIgnoreCase))
+                hostPart = input.Substring(8);
+
+            // Remove path fragments if someone passes full URLs like ldaps://host:636/ou=x
+            var slashIdx = hostPart.IndexOf('/');
+            if (slashIdx >= 0)
+                hostPart = hostPart.Substring(0, slashIdx);
+
+            if (string.IsNullOrWhiteSpace(hostPart))
+                throw new ArgumentException("AD server host is invalid.");
+
+            string host = hostPart;
+            int? port = null;
+            var hp = hostPart.Split(':', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            if (hp.Length == 2 && int.TryParse(hp[1], out var parsedPort) && parsedPort > 0)
             {
-                useSsl = true;
-                host = adServer.Substring(8);
-            }
-            else if (adServer.StartsWith("ldap://", StringComparison.OrdinalIgnoreCase))
-            {
-                host = adServer.Substring(7);
+                host = hp[0];
+                port = parsedPort;
             }
 
-            var ldap = new LdapConnection(new LdapDirectoryIdentifier(host));
+            var identifier = port.HasValue ? new LdapDirectoryIdentifier(host, port.Value) : new LdapDirectoryIdentifier(host);
+            var ldap = new LdapConnection(identifier)
+            {
+                AuthType = AuthType.Basic,
+                Timeout = TimeSpan.FromSeconds(8)
+            };
             ldap.SessionOptions.ProtocolVersion = 3;
             if (useSsl)
             {
@@ -1040,7 +1062,7 @@ namespace OLRTLabSim.Controllers
             long needsChange = 0;
             long userId = 0;
 
-            if (adEnabled && !string.IsNullOrWhiteSpace(adServer))
+            if (adEnabled && !string.IsNullOrWhiteSpace(adServer) && !string.IsNullOrWhiteSpace(adDomain))
             {
                 try
                 {
@@ -1050,47 +1072,52 @@ namespace OLRTLabSim.Controllers
                     ldap.AuthType = AuthType.Basic;
                     ldap.Bind();
 
-                    // Search for user's memberOf attribute
-                    string searchFilter = $"(&(objectClass=user)(sAMAccountName={req.Username}))";
-                    var searchRequest = new SearchRequest(
-                        adDomain.Replace(".", ",DC=").Insert(0, "DC="), // Simple heuristic for base DN
-                        searchFilter,
-                        System.DirectoryServices.Protocols.SearchScope.Subtree,
-                        "memberOf"
-                    );
-
                     accessLevel = "read_only"; // Default AD role
 
-                    try
+                    var hasRoleMapping = !string.IsNullOrWhiteSpace(adGroupAdmin) || !string.IsNullOrWhiteSpace(adGroupRw) || !string.IsNullOrWhiteSpace(adGroupRo);
+                    if (hasRoleMapping && adDomain.Contains('.', StringComparison.Ordinal))
                     {
-                        var searchResponse = (SearchResponse)ldap.SendRequest(searchRequest);
-                        if (searchResponse.Entries.Count > 0)
+                        try
                         {
-                            var entry = searchResponse.Entries[0];
-                            if (entry.Attributes.Contains("memberOf"))
+                            // Search for user's memberOf attribute only when AD role mapping is configured.
+                            string escapedSam = req.Username.Replace("\\", "").Replace("(", "").Replace(")", "").Replace("*", "").Trim();
+                            string searchFilter = $"(&(objectClass=user)(sAMAccountName={escapedSam}))";
+                            var searchRequest = new SearchRequest(
+                                adDomain.Replace(".", ",DC=").Insert(0, "DC="),
+                                searchFilter,
+                                System.DirectoryServices.Protocols.SearchScope.Subtree,
+                                "memberOf"
+                            );
+
+                            var searchResponse = (SearchResponse)ldap.SendRequest(searchRequest);
+                            if (searchResponse.Entries.Count > 0)
                             {
-                                var memberOfAttr = entry.Attributes["memberOf"];
-                                bool isAdmin = false;
-                                bool isRw = false;
-                                bool isRo = false;
-
-                                foreach (var attrValue in memberOfAttr.GetValues(typeof(string)))
+                                var entry = searchResponse.Entries[0];
+                                if (entry.Attributes.Contains("memberOf"))
                                 {
-                                    string groupDn = attrValue.ToString();
-                                    if (!string.IsNullOrWhiteSpace(adGroupAdmin) && groupDn.Contains(adGroupAdmin, StringComparison.OrdinalIgnoreCase)) isAdmin = true;
-                                    if (!string.IsNullOrWhiteSpace(adGroupRw) && groupDn.Contains(adGroupRw, StringComparison.OrdinalIgnoreCase)) isRw = true;
-                                    if (!string.IsNullOrWhiteSpace(adGroupRo) && groupDn.Contains(adGroupRo, StringComparison.OrdinalIgnoreCase)) isRo = true;
-                                }
+                                    var memberOfAttr = entry.Attributes["memberOf"];
+                                    bool isAdmin = false;
+                                    bool isRw = false;
+                                    bool isRo = false;
 
-                                if (isAdmin) accessLevel = "admin";
-                                else if (isRw) accessLevel = "read_write";
-                                else if (isRo) accessLevel = "read_only";
+                                    foreach (var attrValue in memberOfAttr.GetValues(typeof(string)))
+                                    {
+                                        string groupDn = attrValue.ToString();
+                                        if (!string.IsNullOrWhiteSpace(adGroupAdmin) && groupDn.Contains(adGroupAdmin, StringComparison.OrdinalIgnoreCase)) isAdmin = true;
+                                        if (!string.IsNullOrWhiteSpace(adGroupRw) && groupDn.Contains(adGroupRw, StringComparison.OrdinalIgnoreCase)) isRw = true;
+                                        if (!string.IsNullOrWhiteSpace(adGroupRo) && groupDn.Contains(adGroupRo, StringComparison.OrdinalIgnoreCase)) isRo = true;
+                                    }
+
+                                    if (isAdmin) accessLevel = "admin";
+                                    else if (isRw) accessLevel = "read_write";
+                                    else if (isRo) accessLevel = "read_only";
+                                }
                             }
                         }
-                    }
-                    catch
-                    {
-                        // Ignore search errors, fallback to default role or generic handling
+                        catch
+                        {
+                            // Ignore lookup errors; keep default AD role.
+                        }
                     }
 
                     userId = -1; // Fake ID for AD users
