@@ -513,22 +513,13 @@ namespace OLRTLabSim.Services
 
             try
             {
+                // IMPORTANT:
+                // The dnp3 1.7.0-RC1 managed wrapper can crash with
+                // System.ExecutionEngineException from native destroy paths when Dispose()
+                // is invoked after shutdown/rebuild churn (double-destroy sequence in native layer).
+                // We use the documented shutdown path only and avoid explicit reflection-based
+                // Dispose() calls here to keep teardown deterministic and stable.
                 context.Server.Shutdown();
-            }
-            catch
-            {
-            }
-
-            TryInvokeDispose(context.Outstation);
-            TryInvokeDispose(context.Server);
-        }
-
-        private static void TryInvokeDispose(object target)
-        {
-            try
-            {
-                var dispose = target.GetType().GetMethod("Dispose", Type.EmptyTypes);
-                dispose?.Invoke(target, null);
             }
             catch
             {
