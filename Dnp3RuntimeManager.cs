@@ -522,6 +522,7 @@ namespace OLRTLabSim.Services
             {
                 GC.SuppressFinalize(context.Outstation);
                 GC.SuppressFinalize(context.Server);
+            }
             catch
             {
             }
