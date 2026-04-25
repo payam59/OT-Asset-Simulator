@@ -40,6 +40,8 @@ namespace OLRTLabSim.Data
                         CREATE TABLE IF NOT EXISTS assets (
                             id INTEGER PRIMARY KEY AUTOINCREMENT,
                             name TEXT UNIQUE,
+                            asset_name TEXT,
+                            tag_name TEXT,
                             type TEXT,
                             sub_type TEXT DEFAULT 'Analog',
                             protocol TEXT,
@@ -211,6 +213,8 @@ namespace OLRTLabSim.Data
 
                 var migrations = new Dictionary<string, string>
                 {
+                    { "asset_name", "TEXT" },
+                    { "tag_name", "TEXT" },
                     { "sub_type", "TEXT DEFAULT 'Analog'" },
                     { "is_normally_open", "INTEGER DEFAULT 1" },
                     { "bacnet_port", "INTEGER DEFAULT 47808" },
@@ -251,6 +255,14 @@ namespace OLRTLabSim.Data
                             cmd.ExecuteNonQuery();
                         }
                     }
+                }
+
+                using (var cmd = conn.CreateCommand())
+                {
+                    cmd.CommandText = "UPDATE assets SET asset_name = name WHERE asset_name IS NULL OR TRIM(asset_name) = ''";
+                    cmd.ExecuteNonQuery();
+                    cmd.CommandText = "UPDATE assets SET tag_name = name WHERE tag_name IS NULL OR TRIM(tag_name) = ''";
+                    cmd.ExecuteNonQuery();
                 }
             }
 
