@@ -125,7 +125,9 @@ function renderAssets(tags) {
                     ${userRole === 'admin' || userRole === 'read_write' ? `
                         <div class="d-flex gap-1">
                             <button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${encodeURIComponent(asset.name)}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAssetGroup('${encodeURIComponent(asset.name)}')"><i class="fas fa-trash me-1"></i>Delete Asset</button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAssetGroup('${encodeURIComponent(asset.name)}')" title="Delete asset and all tags" aria-label="Delete asset">
+                                <i class="fas fa-trash"></i>
+                            </button>
                         </div>` : ''}
                 </div>
                 ${alarmTags}
