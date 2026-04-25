@@ -17,7 +17,7 @@ namespace OLRTLabSim.Services
         private readonly ConcurrentDictionary<string, AssetMapping> _assetIndex = new();
         private readonly ConcurrentDictionary<string, double> _pointValues = new();
         public ConcurrentDictionary<string, string> StatusMessages { get; } = new();
-
+        private int _isShuttingDown;
         private readonly Runtime _runtime;
 
         public bool Installed => true;
@@ -465,6 +465,15 @@ namespace OLRTLabSim.Services
                     {
                         set.Remove(name);
                     }
+                    if (Volatile.Read(ref _isShuttingDown) != 0)
+                    {
+                        if (!set.Any())
+                        {
+                            _endpointAssets.TryRemove(endpoint, out _);
+                            StatusMessages[endpoint] = "stopped";
+                        }
+                        return;
+                    }
 
                     if (!set.Any())
                     {
@@ -540,21 +549,19 @@ namespace OLRTLabSim.Services
 
         public async Task Bootstrap(List<Asset> assets)
         {
-            foreach (var asset in assets)
-            {
-                if (asset.Protocol == "dnp3")
-                {
-                    await RegisterAsset(asset);
-                }
-            }
+            var dnp3Assets = assets.Where(asset => asset.Protocol == "dnp3").ToList();
+            if (dnp3Assets.Count == 0) return;
+
+            await RegisterAssetsBatch(dnp3Assets);
         }
 
         public async Task Shutdown()
         {
-            foreach (var name in _assetIndex.Keys.ToList())
-            {
-                await UnregisterAsset(name);
-            }
+            Interlocked.Exchange(ref _isShuttingDown, 1);
+
+            _assetIndex.Clear();
+            _pointValues.Clear();
+            _endpointAssets.Clear();
 
             foreach (var endpoint in _servers.Keys.ToList())
             {
@@ -562,9 +569,11 @@ namespace OLRTLabSim.Services
                 {
                     ShutdownServerContext(ctx);
                 }
+                StatusMessages[endpoint] = "stopped";
             }
 
             try { _runtime.Shutdown(); } catch { }
+            await Task.CompletedTask;
         }
 
         private static void ShutdownServerContext(ServerContext context)
