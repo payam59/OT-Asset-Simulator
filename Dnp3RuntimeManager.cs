@@ -145,21 +145,15 @@ namespace OLRTLabSim.Services
             private readonly ConcurrentDictionary<string, AssetMapping> _assetIndex;
             private readonly ConcurrentDictionary<string, double> _pointValues;
             private readonly string _endpoint;
-            private readonly ushort _outstationAddress;
-            private readonly ushort _masterAddress;
 
             public ControlHandlerImpl(
                 ConcurrentDictionary<string, AssetMapping> assetIndex,
                 ConcurrentDictionary<string, double> pointValues,
-                string endpoint,
-                ushort outstationAddress,
-                ushort masterAddress)
+                string endpoint)
             {
                 _assetIndex = assetIndex;
                 _pointValues = pointValues;
                 _endpoint = endpoint;
-                _outstationAddress = outstationAddress;
-                _masterAddress = masterAddress;
             }
 
             public void BeginFragment() { }
@@ -169,8 +163,6 @@ namespace OLRTLabSim.Services
             {
                 return _assetIndex.Values.Any(m =>
                     m.Endpoint == _endpoint &&
-                    m.OutstationAddress == _outstationAddress &&
-                    m.MasterAddress == _masterAddress &&
                     m.PointIndex == index &&
                     (m.PointClass == "binary_output" || m.PointClass == "binary_output_command"));
             }
@@ -179,8 +171,6 @@ namespace OLRTLabSim.Services
             {
                 return _assetIndex.Values.Any(m =>
                     m.Endpoint == _endpoint &&
-                    m.OutstationAddress == _outstationAddress &&
-                    m.MasterAddress == _masterAddress &&
                     m.PointIndex == index &&
                     (m.PointClass == "analog_output" || m.PointClass == "analog_output_command"));
             }
@@ -191,8 +181,6 @@ namespace OLRTLabSim.Services
                 {
                     var mapping = entry.Value;
                     if (mapping.Endpoint != _endpoint ||
-                        mapping.OutstationAddress != _outstationAddress ||
-                        mapping.MasterAddress != _masterAddress ||
                         mapping.PointIndex != index) continue;
                     _pointValues[entry.Key] = value;
                 }
@@ -286,7 +274,7 @@ namespace OLRTLabSim.Services
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
                     var masterAddress = addressGroup.Key.MasterAddress;
-                    var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint, outstationAddress, masterAddress);
+                    var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint);
                     var outstation = server.AddOutstation(
                         new OutstationConfig(outstationAddress, masterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
                         new OutstationAppImpl(),
@@ -298,7 +286,7 @@ namespace OLRTLabSim.Services
                         }),
                         AddressFilter.Any());
 
-                    outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
+                    outstation.Transaction(db => InitializeDatabase(db, endpoint));
                     outstations[AddressKey(outstationAddress, masterAddress)] = new OutstationContext
                     {
                         Outstation = outstation,
@@ -333,13 +321,11 @@ namespace OLRTLabSim.Services
             return $"{outstationAddress}:{masterAddress}";
         }
 
-        private void InitializeDatabase(Database db, string endpoint, ushort outstationAddress, ushort masterAddress)
+        private void InitializeDatabase(Database db, string endpoint)
         {
             var assets = _assetIndex
                 .Where(kv =>
-                    kv.Value.Endpoint == endpoint &&
-                    kv.Value.OutstationAddress == outstationAddress &&
-                    kv.Value.MasterAddress == masterAddress)
+                    kv.Value.Endpoint == endpoint)
                 .Select(kv => kv)
                 .ToList();
 
