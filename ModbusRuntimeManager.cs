@@ -27,7 +27,7 @@ namespace OLRTLabSim.Services
         private readonly ConcurrentDictionary<string, HashSet<string>> _endpointAssets = new();
         private readonly ConcurrentDictionary<string, HashSet<byte>> _endpointUnitIds = new();
         private readonly ConcurrentDictionary<string, AssetMapping> _assetIndex = new();
-
+        private int _isShuttingDown;
         public ConcurrentDictionary<string, string> StatusMessages { get; } = new();
 
         public bool Installed => true; // using rodbus native
@@ -203,11 +203,17 @@ namespace OLRTLabSim.Services
                 WordOrder = string.IsNullOrWhiteSpace(asset.ModbusWordOrder) ? "low_high" : asset.ModbusWordOrder
             };
 
-            var isNewUnitForEndpoint = !_endpointUnitIds.TryGetValue(endpoint, out var existingUnits) || !existingUnits.Contains((byte)unitId);
-
+            var isNewUnitForEndpoint = true;
+            if (_endpointUnitIds.TryGetValue(endpoint, out var existingUnits))
+            {
+                lock (existingUnits)
+                {
+                    isNewUnitForEndpoint = !existingUnits.Contains((byte)unitId);
+                }
+            }
             _assetIndex[name] = mapping;
-            _endpointAssets.AddOrUpdate(endpoint, new HashSet<string> { name }, (k, v) => { v.Add(name); return v; });
-            _endpointUnitIds.AddOrUpdate(endpoint, new HashSet<byte> { (byte)unitId }, (k, v) => { v.Add((byte)unitId); return v; });
+            _endpointAssets.AddOrUpdate(endpoint, new HashSet<string> { name }, (k, v) => { lock (v) v.Add(name); return v; });
+            _endpointUnitIds.AddOrUpdate(endpoint, new HashSet<byte> { (byte)unitId }, (k, v) => { lock (v) v.Add((byte)unitId); return v; });
 
             if (_tcpServers.TryGetValue(endpoint, out var server))
             {
@@ -243,6 +249,68 @@ namespace OLRTLabSim.Services
 
             WriteValue(asset);
         }
+        public async Task RegisterAssetsBatch(IEnumerable<Asset> assets)
+        {
+            var touchedEndpoints = new Dictionary<string, (string ip, int port)>();
+            var stagedAssets = new List<Asset>();
+
+            foreach (var asset in assets)
+            {
+                string name = asset.Name;
+                string ip = string.IsNullOrWhiteSpace(asset.ModbusIp) ? "0.0.0.0" : asset.ModbusIp;
+                int port = asset.ModbusPort <= 0 ? 5020 : (int)asset.ModbusPort;
+                string endpoint = $"{ip}:{port}";
+
+                if (_assetIndex.ContainsKey(name))
+                {
+                    await UnregisterAsset(name);
+                }
+
+                int unitId = Math.Max(0, Math.Min((int)asset.ModbusUnitId, 255));
+                bool zeroBased = asset.ModbusZeroBased == 1;
+                string configuredType = string.IsNullOrWhiteSpace(asset.ModbusRegisterType) ? "holding" : asset.ModbusRegisterType;
+                var (normalizedType, normalizedAddress) = NormalizeReference((int)asset.Address, configuredType, zeroBased);
+
+                var mapping = new AssetMapping
+                {
+                    Endpoint = endpoint,
+                    UnitId = unitId,
+                    RegisterType = normalizedType,
+                    Address = normalizedAddress,
+                    RawAddress = (int)asset.Address,
+                    AlarmAddress = asset.ModbusAlarmAddress.HasValue ? (int?)asset.ModbusAlarmAddress.Value : null,
+                    AlarmBit = (int)asset.ModbusAlarmBit,
+                    SubType = asset.SubType,
+                    ZeroBased = zeroBased,
+                    WordOrder = string.IsNullOrWhiteSpace(asset.ModbusWordOrder) ? "low_high" : asset.ModbusWordOrder
+                };
+
+                _assetIndex[name] = mapping;
+                _endpointAssets.AddOrUpdate(endpoint, new HashSet<string> { name }, (k, v) =>
+                {
+                    lock (v) v.Add(name);
+                    return v;
+                });
+                _endpointUnitIds.AddOrUpdate(endpoint, new HashSet<byte> { (byte)unitId }, (k, v) =>
+                {
+                    lock (v) v.Add((byte)unitId);
+                    return v;
+                });
+
+                touchedEndpoints[endpoint] = (ip, port);
+                stagedAssets.Add(asset);
+            }
+
+            foreach (var endpoint in touchedEndpoints)
+            {
+                await RebuildEndpoint(endpoint.Key, endpoint.Value.ip, endpoint.Value.port);
+            }
+
+            foreach (var asset in stagedAssets)
+            {
+                WriteValue(asset);
+            }
+        }
 
         public async Task UnregisterAsset(string name)
         {
@@ -252,6 +320,21 @@ namespace OLRTLabSim.Services
                 if (_endpointAssets.TryGetValue(endpoint, out var set))
                 {
                     set.Remove(name);
+                    lock (set)
+                    {
+                        set.Remove(name);
+                    }
+
+                    if (Volatile.Read(ref _isShuttingDown) != 0)
+                    {
+                        if (!set.Any())
+                        {
+                            _endpointAssets.TryRemove(endpoint, out _);
+                            _endpointUnitIds.TryRemove(endpoint, out _);
+                            StatusMessages[endpoint] = "stopped";
+                        }
+                        return;
+                    }
                     if (!set.Any())
                     {
                         _endpointAssets.TryRemove(endpoint, out _);
@@ -391,22 +474,29 @@ namespace OLRTLabSim.Services
 
         public async Task Bootstrap(List<Asset> assets)
         {
-            foreach (var asset in assets)
-            {
-                if (asset.Protocol == "modbus")
-                {
-                    await RegisterAsset(asset);
-                }
-            }
+            var modbusAssets = assets.Where(asset => asset.Protocol == "modbus").ToList();
+            if (modbusAssets.Count == 0) return;
+
+            await RegisterAssetsBatch(modbusAssets);
         }
 
         public async Task Shutdown()
         {
-            foreach (var name in _assetIndex.Keys.ToList())
-            {
-                await UnregisterAsset(name);
-            }
+            Interlocked.Exchange(ref _isShuttingDown, 1);
 
+            _assetIndex.Clear();
+            _endpointAssets.Clear();
+            _endpointUnitIds.Clear();
+
+            foreach (var endpoint in _tcpServers.Keys.ToList())
+            {
+                if (_tcpServers.TryRemove(endpoint, out var server))
+                {
+                    try { server.Shutdown(); } catch { }
+                }
+                StatusMessages[endpoint] = "stopped";
+            }
+            await Task.CompletedTask;
         }
 
         public object Status()
