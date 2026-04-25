@@ -273,7 +273,6 @@ namespace OLRTLabSim.Services
                 var server = OutstationServer.CreateTcpServer(_runtime, LinkErrorMode.Close, endpoint);
                 var outstations = new Dictionary<string, OutstationContext>();
                 
-                var outstation = server.AddOutstation(
                 foreach (var addressGroup in endpointMappings.GroupBy(m => (m.OutstationAddress, m.MasterAddress)))
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
