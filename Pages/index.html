@@ -23,10 +23,10 @@
                     <i class="fas fa-server me-2"></i>Manage BBMD
                 </button>
                 <button class="btn btn-info shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#importModal">
-                    <i class="fas fa-file-import me-2"></i>Import CSV
+                    <i class="fas fa-file-import me-2"></i>Tag Reconfig
                 </button>
                 <button class="btn btn-primary shadow-sm px-4" data-bs-toggle="modal" data-bs-target="#addModal">
-                    <i class="fas fa-plus me-2"></i>Add Tag
+                    <i class="fas fa-plus me-2"></i>Add Asset
                 </button>
             </div>
         </div>
@@ -597,6 +597,10 @@
                             </div>
                         </div>
                         <div class="mb-2">
+                            <label class="small fw-bold">Kepware Tag Detail</label>
+                            <input type="text" id="edit_dnp3_kepware_address" class="form-control" readonly>
+                        </div>
+                        <div class="mb-2">
                             <label class="small fw-bold">Static Variation</label>
                             <input type="number" id="edit_dnp3_static_variation" class="form-control">
                         </div>
@@ -625,6 +629,11 @@
                 <div class="modal-body">
                     <div id="assetTagsList" class="list-group"></div>
                 </div>
+                <div class="modal-footer">
+                    <button class="btn btn-primary" id="assetTagsAddTagBtn" onclick="window.openAddTagFromAssetModal()">
+                        <i class="fas fa-plus me-1"></i>Add New Tag
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -633,7 +642,7 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header bg-info text-white">
-                    <h5 class="modal-title">Import Tags from CSV</h5>
+                    <h5 class="modal-title">Tag Reconfig (CSV)</h5>
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
