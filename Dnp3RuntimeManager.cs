@@ -520,11 +520,12 @@ namespace OLRTLabSim.Services
             }
             try
             {
-                (context.Server as IDisposable)?.Dispose();
+                context.Server.Dispose();
             }
             catch
             {
             }
+        
         }
 
         public object Status()
