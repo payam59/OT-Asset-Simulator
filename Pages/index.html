@@ -638,6 +638,23 @@
         </div>
     </div>
 
+    <div class="modal fade" id="injectModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-dark text-white">
+                    <h5 class="modal-title" id="injectModalTitle">Inject Asset Values</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="alert alert-secondary small mb-3">
+                        Select a tag and inject a value. Analog tags accept numeric values. Digital tags support ON/OFF (1/0).
+                    </div>
+                    <div id="injectTagList" class="list-group"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="modal fade" id="importModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog">
             <div class="modal-content">
