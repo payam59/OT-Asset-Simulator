@@ -6,6 +6,7 @@ let userRole = 'read_only';
 let latestTags = [];
 let returnToAssetTagsAfterEdit = false;
 let selectedAssetForTagModal = '';
+let selectedAssetForInjectModal = '';
 
 function renderAlarms(alarms) {
     const alarmList = document.getElementById('alarmList');
@@ -92,6 +93,12 @@ function tagValueLabel(t) {
     return isDigital ? (isActive ? 'ON' : 'OFF') : Number(t.current_value || 0).toFixed(2);
 }
 
+function jsStringEscape(value) {
+    return String(value ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/'/g, "\\'");
+}
+
 function renderAssets(tags) {
     const grid = document.getElementById('assetGrid');
     if (!grid) return;
@@ -122,13 +129,16 @@ function renderAssets(tags) {
             <div class="card asset-card p-3 shadow-sm ${cardBorderClass}">
                 <div class="d-flex justify-content-between align-items-center mb-2">
                     <span class="badge bg-dark">${protocolSummary || 'N/A'}</span>
-                    ${userRole === 'admin' || userRole === 'read_write' ? `
-                        <div class="d-flex gap-1">
-                            <button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${encodeURIComponent(asset.name)}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>
-                            <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAssetGroup('${encodeURIComponent(asset.name)}')" title="Delete asset and all tags" aria-label="Delete asset">
-                                <i class="fas fa-trash"></i>
+                    <div class="d-flex gap-1">
+                        <button class="btn btn-sm btn-outline-primary" onclick="window.openAssetTagsModal('${jsStringEscape(encodeURIComponent(asset.name))}')"><i class="fas fa-tags me-1"></i>Edit Tags</button>
+                        ${(userRole === 'admin' || userRole === 'read_write') ? `
+                            <button class="btn btn-sm btn-outline-dark" onclick="window.openInjectModal('${jsStringEscape(encodeURIComponent(asset.name))}')" title="Inject values into this asset's tags" aria-label="Inject values">
+                                <i class="fas fa-syringe"></i>
                             </button>
-                        </div>` : ''}
+                            <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAssetGroup('${jsStringEscape(encodeURIComponent(asset.name))}')" title="Delete asset and all tags" aria-label="Delete asset">
+                                <i class="fas fa-trash me-1"></i>Delete
+                            </button>` : ''}
+                    </div>
                 </div>
                 ${alarmTags}
                 <div class="text-center">
@@ -167,14 +177,121 @@ window.openAssetTagsModal = function(assetNameEncoded) {
                     ${alarm ? `<div class="small text-danger">${t.alarm_message || 'Alarm active'}</div>` : ''}
                 </div>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-primary" onclick="window.openEditModal('${encodeURIComponent(t.name)}')"><i class="fas fa-edit"></i></button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAsset('${encodeURIComponent(t.name)}')"><i class="fas fa-trash"></i></button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="window.openEditModal('${jsStringEscape(encodeURIComponent(t.name))}')"><i class="fas fa-edit"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="window.deleteAsset('${jsStringEscape(encodeURIComponent(t.name))}')"><i class="fas fa-trash"></i></button>
                 </div>
             </div>`;
         }).join('');
     }
 
     modal.show();
+};
+
+function renderInjectModalList(assetName) {
+    const list = document.getElementById('injectTagList');
+    if (!list) return;
+
+    const tags = latestTags
+        .filter(t => (t.asset_name || '').trim() === assetName)
+        .sort((a, b) => (a.tag_name || a.name || '').localeCompare(b.tag_name || b.name || ''));
+
+    if (!tags.length) {
+        list.innerHTML = '<div class="list-group-item text-muted">No tags found for this asset.</div>';
+        return;
+    }
+
+    list.innerHTML = tags.map(t => {
+        const displayName = t.tag_name || t.name;
+        const isDigital = (t.sub_type || '').toLowerCase() === 'digital';
+        const valueText = isDigital
+            ? `${Number(t.current_value || 0) >= 0.5 ? 'ON (1)' : 'OFF (0)'}`
+            : Number(t.current_value || 0).toFixed(2);
+
+        if (isDigital) {
+            return `<div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                    <div>
+                        <div><strong>${displayName}</strong> <span class="badge bg-secondary">Digital</span></div>
+                        <small class="text-muted">Current: ${valueText}</small>
+                    </div>
+                    <div class="btn-group">
+                        <button class="btn btn-sm btn-outline-success" onclick="window.injectDigitalValue('${jsStringEscape(encodeURIComponent(t.name))}', 1)">ON</button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="window.injectDigitalValue('${jsStringEscape(encodeURIComponent(t.name))}', 0)">OFF</button>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="window.releaseTagToAuto('${jsStringEscape(encodeURIComponent(t.name))}')">Auto</button>
+                    </div>
+                </div>
+            </div>`;
+        }
+
+        return `<div class="list-group-item">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <div><strong>${displayName}</strong> <span class="badge bg-info text-dark">Analog</span></div>
+                    <small class="text-muted">Current: ${valueText}</small>
+                </div>
+                <div class="d-flex gap-2 align-items-center">
+                    <input type="number" step="any" class="form-control form-control-sm" id="inject_input_${encodeURIComponent(t.name)}" placeholder="Value" style="max-width: 140px;">
+                    <button class="btn btn-sm btn-primary" onclick="window.injectAnalogValue('${jsStringEscape(encodeURIComponent(t.name))}')">
+                        <i class="fas fa-bolt me-1"></i>Inject
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" onclick="window.releaseTagToAuto('${jsStringEscape(encodeURIComponent(t.name))}')">Auto</button>
+                </div>
+            </div>
+        </div>`;
+    }).join('');
+}
+
+window.openInjectModal = function(assetNameEncoded) {
+    const assetName = decodeURIComponent(assetNameEncoded);
+    selectedAssetForInjectModal = assetName;
+    const modal = bootstrap.Modal.getOrCreateInstance(document.getElementById('injectModal'));
+    document.getElementById('injectModalTitle').textContent = `Inject Values: ${assetName}`;
+    renderInjectModalList(assetName);
+    modal.show();
+};
+
+window.injectDigitalValue = async function(tagNameEncoded, value) {
+    const tagName = decodeURIComponent(tagNameEncoded);
+    const response = await fetch(`/api/override/${encodeURIComponent(tagName)}?value=${value}`, { method: 'PUT' });
+    if (!response.ok) {
+        alert(`Failed to inject ${tagName}: ${await response.text()}`);
+        return;
+    }
+
+    await window.fetchAssets();
+    renderInjectModalList(selectedAssetForInjectModal);
+};
+
+window.injectAnalogValue = async function(tagNameEncoded) {
+    const tagName = decodeURIComponent(tagNameEncoded);
+    const inputId = `inject_input_${encodeURIComponent(tagName)}`;
+    const valueRaw = document.getElementById(inputId)?.value;
+    const numericValue = Number(valueRaw);
+    if (!Number.isFinite(numericValue)) {
+        alert('Please enter a valid numeric value.');
+        return;
+    }
+
+    const response = await fetch(`/api/override/${encodeURIComponent(tagName)}?value=${numericValue}`, { method: 'PUT' });
+    if (!response.ok) {
+        alert(`Failed to inject ${tagName}: ${await response.text()}`);
+        return;
+    }
+
+    await window.fetchAssets();
+    renderInjectModalList(selectedAssetForInjectModal);
+};
+
+window.releaseTagToAuto = async function(tagNameEncoded) {
+    const tagName = decodeURIComponent(tagNameEncoded);
+    const response = await fetch(`/api/release/${encodeURIComponent(tagName)}`, { method: 'PUT' });
+    if (!response.ok) {
+        alert(`Failed to enable auto mode for ${tagName}: ${await response.text()}`);
+        return;
+    }
+
+    await window.fetchAssets();
+    renderInjectModalList(selectedAssetForInjectModal);
 };
 
 window.fetchBBMDs = async function() {
@@ -548,9 +665,20 @@ window.deleteAsset = async function(nameEncoded) {
 
 window.deleteAssetGroup = async function(assetNameEncoded) {
     const assetName = decodeURIComponent(assetNameEncoded);
-    if (!confirm(`Delete asset ${assetName} and all of its tags?`)) return;
-    await fetch(`/api/assets/by-asset/${encodeURIComponent(assetName)}`, { method: 'DELETE' });
-    window.fetchAssets();
+    const matchingTags = latestTags.filter(t => (t.asset_name || '').trim() === assetName);
+    const tagCount = matchingTags.length;
+    const warning = tagCount > 0
+        ? `Delete asset ${assetName} and all ${tagCount} tag(s)? This cannot be undone.`
+        : `Delete asset ${assetName} and all of its tags?`;
+    if (!confirm(warning)) return;
+
+    const response = await fetch(`/api/assets/by-asset/${encodeURIComponent(assetName)}`, { method: 'DELETE' });
+    if (!response.ok) {
+        alert(`Failed to delete ${assetName}: ${await response.text()}`);
+        return;
+    }
+
+    await window.fetchAssets();
 };
 
 window.toggleDigital = async function(name, currentVal) {
