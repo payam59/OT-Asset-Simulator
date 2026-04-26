@@ -77,6 +77,7 @@ namespace OLRTLabSim.Data
                             dnp3_point_class TEXT DEFAULT 'analog_output',
                             dnp3_event_class INTEGER DEFAULT 1,
                             dnp3_static_variation INTEGER DEFAULT 0,
+                            dnp3_address TEXT DEFAULT '10.0.1.Value',
                             alarm_state INTEGER DEFAULT 0,
                             alarm_message TEXT,
                             FOREIGN KEY (bbmd_id) REFERENCES bbmd(id) ON DELETE SET NULL
@@ -280,6 +281,7 @@ namespace OLRTLabSim.Data
                     { "dnp3_point_class", "TEXT DEFAULT 'analog_output'" },
                     { "dnp3_event_class", "INTEGER DEFAULT 1" },
                     { "dnp3_static_variation", "INTEGER DEFAULT 0" },
+                    { "dnp3_address", "TEXT DEFAULT '10.0.1.Value'" },
                     { "alarm_state", "INTEGER DEFAULT 0" },
                     { "alarm_message", "TEXT" }
                 };

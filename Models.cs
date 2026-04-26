@@ -64,6 +64,8 @@ namespace OLRTLabSim.Models
         public long Dnp3EventClass { get; set; }
         [JsonPropertyName("dnp3_static_variation")]
         public long Dnp3StaticVariation { get; set; }
+        [JsonPropertyName("dnp3_address")]
+        public string Dnp3Address { get; set; }
 
         public long AlarmState { get; set; }
         public string AlarmMessage { get; set; }
