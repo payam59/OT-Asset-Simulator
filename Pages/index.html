@@ -273,8 +273,8 @@
                         <h6 class="small fw-bold text-secondary"><i class="fas fa-network-wired me-1"></i>DNP3 Configuration</h6>
                         <div class="row mb-2">
                             <div class="col">
-                                <label class="small fw-bold">Point Index <span class="text-danger">*</span></label>
-                                <input type="number" id="dnp3_addr" class="form-control" value="0" placeholder="e.g., 0">
+                                <label class="small fw-bold">Address <span class="text-danger">*</span></label>
+                                <input type="text" id="dnp3_address" class="form-control" value="10.0.1.Value" placeholder="e.g., 10.0.1.Value">
                             </div>
                             <div class="col">
                                 <label class="small">Icon</label>
@@ -310,43 +310,6 @@
                                 <label class="small fw-bold">DNP Client Address</label>
                                 <input type="number" id="dnp3_master_address" class="form-control" value="1">
                             </div>
-                        </div>
-                        <div class="row mb-2">
-                            <div class="col">
-                                <label class="small fw-bold">Point Class</label>
-                                <select id="dnp3_point_class" class="form-select">
-                                    <option value="device_attributes">Device Attributes (Grp 0, R)</option>
-                                    <option value="binary_input">Binary Input (Grp 1, R)</option>
-                                    <option value="double_bit_input">Double-Bit Input (Grp 3, R)</option>
-                                    <option value="binary_output">Binary Output (Grp 10, R/W)</option>
-                                    <option value="binary_output_command">Binary Output Command (Grp 12, R/W)</option>
-                                    <option value="counter">Counter (Grp 20, R)</option>
-                                    <option value="frozen_counter">Frozen Counter (Grp 21, R)</option>
-                                    <option value="analog_input">Analog Input (Grp 30, R)</option>
-                                    <option value="analog_input_deadband">Analog Input Deadband (Grp 34, R)</option>
-                                    <option value="analog_output">Analog Output (Grp 40, R/W)</option>
-                                    <option value="analog_output_command">Analog Output Command (Grp 41, R/W)</option>
-                                    <option value="time_and_date">Time and Date (Grp 50, R)</option>
-                                    <option value="class_poll_data_request">Class Poll Data Request (Grp 60, W)</option>
-                                    <option value="file_identifiers">File Identifiers (Grp 70, R/W)</option>
-                                    <option value="internal_indications">Internal Indications (Grp 80, R)</option>
-                                    <option value="data_sets">Data Sets (Grp 87, R/W)</option>
-                                    <option value="octet_string">Octet String (Grp 110, R/W)</option>
-                                    <option value="authentication">Authentication (Grp 120, R/W)</option>
-                                </select>
-                            </div>
-                            <div class="col">
-                                <label class="small fw-bold">Event Class</label>
-                                <select id="dnp3_event_class" class="form-select">
-                                    <option value="1">Class 1</option>
-                                    <option value="2">Class 2</option>
-                                    <option value="3">Class 3</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-2">
-                            <label class="small fw-bold">Static Variation</label>
-                            <input type="number" id="dnp3_static_variation" class="form-control" value="0">
                         </div>
                     </div>
 
@@ -525,8 +488,8 @@
                         <h6 class="small fw-bold text-secondary"><i class="fas fa-network-wired me-1"></i>DNP3 Configuration</h6>
                         <div class="row mb-2">
                             <div class="col">
-                                <label class="small fw-bold">Point Index <span class="text-danger">*</span></label>
-                                <input type="number" id="edit_dnp3_addr" class="form-control" placeholder="e.g., 0">
+                                <label class="small fw-bold">Address <span class="text-danger">*</span></label>
+                                <input type="text" id="edit_dnp3_address" class="form-control" placeholder="e.g., 10.0.1.Value">
                             </div>
                             <div class="col">
                                 <label class="small">Icon</label>
@@ -562,47 +525,6 @@
                                 <label class="small fw-bold">DNP Client Address</label>
                                 <input type="number" id="edit_dnp3_master_address" class="form-control">
                             </div>
-                        </div>
-                        <div class="row mb-2">
-                            <div class="col">
-                                <label class="small fw-bold">Point Class</label>
-                                <select id="edit_dnp3_point_class" class="form-select">
-                                    <option value="device_attributes">Device Attributes (Grp 0, R)</option>
-                                    <option value="binary_input">Binary Input (Grp 1, R)</option>
-                                    <option value="double_bit_input">Double-Bit Input (Grp 3, R)</option>
-                                    <option value="binary_output">Binary Output (Grp 10, R/W)</option>
-                                    <option value="binary_output_command">Binary Output Command (Grp 12, R/W)</option>
-                                    <option value="counter">Counter (Grp 20, R)</option>
-                                    <option value="frozen_counter">Frozen Counter (Grp 21, R)</option>
-                                    <option value="analog_input">Analog Input (Grp 30, R)</option>
-                                    <option value="analog_input_deadband">Analog Input Deadband (Grp 34, R)</option>
-                                    <option value="analog_output">Analog Output (Grp 40, R/W)</option>
-                                    <option value="analog_output_command">Analog Output Command (Grp 41, R/W)</option>
-                                    <option value="time_and_date">Time and Date (Grp 50, R)</option>
-                                    <option value="class_poll_data_request">Class Poll Data Request (Grp 60, W)</option>
-                                    <option value="file_identifiers">File Identifiers (Grp 70, R/W)</option>
-                                    <option value="internal_indications">Internal Indications (Grp 80, R)</option>
-                                    <option value="data_sets">Data Sets (Grp 87, R/W)</option>
-                                    <option value="octet_string">Octet String (Grp 110, R/W)</option>
-                                    <option value="authentication">Authentication (Grp 120, R/W)</option>
-                                </select>
-                            </div>
-                            <div class="col">
-                                <label class="small fw-bold">Event Class</label>
-                                <select id="edit_dnp3_event_class" class="form-select">
-                                    <option value="1">Class 1</option>
-                                    <option value="2">Class 2</option>
-                                    <option value="3">Class 3</option>
-                                </select>
-                            </div>
-                        </div>
-                        <div class="mb-2">
-                            <label class="small fw-bold">Kepware Tag Detail</label>
-                            <input type="text" id="edit_dnp3_kepware_address" class="form-control" readonly>
-                        </div>
-                        <div class="mb-2">
-                            <label class="small fw-bold">Static Variation</label>
-                            <input type="number" id="edit_dnp3_static_variation" class="form-control">
                         </div>
                     </div>
 

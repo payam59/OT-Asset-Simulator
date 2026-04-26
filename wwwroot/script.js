@@ -449,7 +449,7 @@ window.saveNewAsset = async function() {
 
     const runtimeName = `${assetName.replace(/\s+/g, '_')}_${tagName.replace(/\s+/g, '_')}`;
     const address = isBacnet ? parseInt(document.getElementById('addr').value) :
-        (isModbus ? parseInt(document.getElementById('modbus_addr').value) : parseInt(document.getElementById('dnp3_addr').value));
+        (isModbus ? parseInt(document.getElementById('modbus_addr').value) : 1);
     const icon = isBacnet ? document.getElementById('icon').value :
         (isModbus ? document.getElementById('modbus_icon').value : document.getElementById('dnp3_icon').value);
 
@@ -485,9 +485,7 @@ window.saveNewAsset = async function() {
         dnp3_port: parseInt(document.getElementById('dnp3_port').value) || 20000,
         dnp3_outstation_address: parseInt(document.getElementById('dnp3_outstation_address').value) || 10,
         dnp3_master_address: parseInt(document.getElementById('dnp3_master_address').value) || 1,
-        dnp3_point_class: document.getElementById('dnp3_point_class').value || 'analog_output',
-        dnp3_event_class: parseInt(document.getElementById('dnp3_event_class').value) || 1,
-        dnp3_static_variation: parseInt(document.getElementById('dnp3_static_variation').value) || 0
+        dnp3_address: document.getElementById('dnp3_address').value || '10.0.1.Value'
     };
 
     const res = await fetch('/api/assets', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(data) });
@@ -540,7 +538,6 @@ window.openEditModal = async function(nameEncoded) {
     if (a.protocol === 'bacnet') {
         document.getElementById('edit_addr').value = a.address;
         document.getElementById('edit_icon').value = a.icon;
-        document.getElementById('edit_dnp3_kepware_address').value = '';
     } else if (a.protocol === 'modbus') {
         document.getElementById('edit_modbus_addr').value = a.address;
         document.getElementById('edit_modbus_icon').value = a.icon;
@@ -552,18 +549,13 @@ window.openEditModal = async function(nameEncoded) {
         document.getElementById('edit_modbus_word_order').value = a.modbus_word_order || 'low_high';
         document.getElementById('edit_modbus_alarm_address').value = a.modbus_alarm_address ?? '';
         document.getElementById('edit_modbus_alarm_bit').value = a.modbus_alarm_bit ?? 0;
-        document.getElementById('edit_dnp3_kepware_address').value = '';
     } else {
-        document.getElementById('edit_dnp3_addr').value = a.address;
+        document.getElementById('edit_dnp3_address').value = a.dnp3_address || a.dnp3_kepware_address || '10.0.1.Value';
         document.getElementById('edit_dnp3_icon').value = a.icon;
         document.getElementById('edit_dnp3_ip').value = a.dnp3_ip || '0.0.0.0';
         document.getElementById('edit_dnp3_port').value = a.dnp3_port || 20000;
         document.getElementById('edit_dnp3_outstation_address').value = a.dnp3_outstation_address ?? 10;
         document.getElementById('edit_dnp3_master_address').value = a.dnp3_master_address ?? 1;
-        document.getElementById('edit_dnp3_point_class').value = a.dnp3_point_class || 'analog_output';
-        document.getElementById('edit_dnp3_event_class').value = a.dnp3_event_class || 1;
-        document.getElementById('edit_dnp3_static_variation').value = a.dnp3_static_variation || 0;
-        document.getElementById('edit_dnp3_kepware_address').value = a.dnp3_kepware_address || '';
     }
 
     window.toggleFields('edit_');
@@ -602,7 +594,7 @@ window.saveAssetEdit = async function() {
         sub_type: document.getElementById('edit_sub_type').value,
         protocol,
         address: isBacnet ? parseInt(document.getElementById('edit_addr').value) :
-            (isModbus ? parseInt(document.getElementById('edit_modbus_addr').value) : parseInt(document.getElementById('edit_dnp3_addr').value)),
+            (isModbus ? parseInt(document.getElementById('edit_modbus_addr').value) : 1),
         min_range: parseFloat(document.getElementById('edit_min').value) || 0,
         max_range: parseFloat(document.getElementById('edit_max').value) || 100,
         drift_rate: parseFloat(document.getElementById('edit_drift').value) || 0,
@@ -628,9 +620,7 @@ window.saveAssetEdit = async function() {
         dnp3_port: parseInt(document.getElementById('edit_dnp3_port').value) || 20000,
         dnp3_outstation_address: parseInt(document.getElementById('edit_dnp3_outstation_address').value) || 10,
         dnp3_master_address: parseInt(document.getElementById('edit_dnp3_master_address').value) || 1,
-        dnp3_point_class: document.getElementById('edit_dnp3_point_class').value || 'analog_output',
-        dnp3_event_class: parseInt(document.getElementById('edit_dnp3_event_class').value) || 1,
-        dnp3_static_variation: parseInt(document.getElementById('edit_dnp3_static_variation').value) || 0
+        dnp3_address: document.getElementById('edit_dnp3_address').value || '10.0.1.Value'
     };
 
     const returnAssetName = (document.getElementById('edit_asset_name').value || '').trim();

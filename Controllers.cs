@@ -82,6 +82,7 @@ namespace OLRTLabSim.Controllers
                 Dnp3PointClass = reader["dnp3_point_class"].ToString(),
                 Dnp3EventClass = Convert.ToInt64(reader["dnp3_event_class"]),
                 Dnp3StaticVariation = Convert.ToInt64(reader["dnp3_static_variation"]),
+                Dnp3Address = reader["dnp3_address"] == DBNull.Value ? "10.0.1.Value" : reader["dnp3_address"].ToString(),
                 AlarmState = Convert.ToInt64(reader["alarm_state"]),
                 AlarmMessage = reader["alarm_message"] == DBNull.Value ? null : reader["alarm_message"].ToString(),
                 AssetName = reader["asset_name"] == DBNull.Value ? reader["name"].ToString() : reader["asset_name"].ToString(),
@@ -164,6 +165,7 @@ namespace OLRTLabSim.Controllers
                     dnp3_point_class = reader["dnp3_point_class"]?.ToString(),
                     dnp3_event_class = reader["dnp3_event_class"],
                     dnp3_static_variation = reader["dnp3_static_variation"],
+                    dnp3_address = reader["dnp3_address"] == DBNull.Value ? "10.0.1.Value" : reader["dnp3_address"]?.ToString(),
                     alarm_state = reader["alarm_state"],
                     alarm_message = reader["alarm_message"] == DBNull.Value ? null : reader["alarm_message"]?.ToString(),
                     dnp3_kepware_address = _dnp3Manager.GetKepwareAddress(reader["name"]?.ToString() ?? "")
@@ -218,6 +220,7 @@ namespace OLRTLabSim.Controllers
                 dnp3_point_class = asset.Dnp3PointClass,
                 dnp3_event_class = asset.Dnp3EventClass,
                 dnp3_static_variation = asset.Dnp3StaticVariation,
+                dnp3_address = asset.Dnp3Address,
                 alarm_state = asset.AlarmState,
                 alarm_message = asset.AlarmMessage,
                 dnp3_kepware_address = _dnp3Manager.GetKepwareAddress(asset.Name)
@@ -308,6 +311,11 @@ namespace OLRTLabSim.Controllers
                 return BadRequest(new { detail = "Asset with this name already exists" });
 
             string normType = (asset.Protocol == "bacnet" ? asset.ObjectType : "value");
+            if ((asset.Protocol ?? "").Equals("dnp3", StringComparison.OrdinalIgnoreCase))
+            {
+                ResolveDnp3AddressFields(asset);
+                asset.Dnp3EventClass = 1;
+            }
 
             cmd.CommandText = @"
                 INSERT INTO assets (
@@ -318,9 +326,9 @@ namespace OLRTLabSim.Controllers
                     modbus_unit_id, modbus_register_type, modbus_ip, modbus_port,
                     modbus_alarm_address, modbus_alarm_bit,
                     dnp3_ip, dnp3_port, dnp3_outstation_address, dnp3_master_address,
-                    dnp3_point_class, dnp3_event_class, dnp3_static_variation, alarm_state
+                    dnp3_point_class, dnp3_event_class, dnp3_static_variation, dnp3_address, alarm_state
                 )
-                VALUES (@p1, @p1a, @p1b, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, 0)
+                VALUES (@p1, @p1a, @p1b, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, @p34, 0)
             ";
 
             cmd.Parameters.Clear();
@@ -359,6 +367,7 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@p31", (object)(asset.Dnp3PointClass ?? "analog_output"));
             cmd.Parameters.AddWithValue("@p32", asset.Dnp3EventClass > 0 ? asset.Dnp3EventClass : 1);
             cmd.Parameters.AddWithValue("@p33", asset.Dnp3StaticVariation);
+            cmd.Parameters.AddWithValue("@p34", (object)(asset.Dnp3Address ?? "10.0.1.Value"));
 
             cmd.ExecuteNonQuery();
 
@@ -413,6 +422,16 @@ namespace OLRTLabSim.Controllers
             var resolvedDnp3PointClass = string.IsNullOrWhiteSpace(asset.Dnp3PointClass) ? existing.Dnp3PointClass : asset.Dnp3PointClass;
             var resolvedDnp3EventClass = asset.Dnp3EventClass > 0 ? asset.Dnp3EventClass : existing.Dnp3EventClass;
             var resolvedDnp3StaticVariation = asset.Dnp3StaticVariation >= 0 ? asset.Dnp3StaticVariation : existing.Dnp3StaticVariation;
+            var resolvedDnp3Address = string.IsNullOrWhiteSpace(asset.Dnp3Address) ? existing.Dnp3Address : asset.Dnp3Address;
+            if ((asset.Protocol ?? "").Equals("dnp3", StringComparison.OrdinalIgnoreCase))
+            {
+                asset.Dnp3Address = resolvedDnp3Address;
+                ResolveDnp3AddressFields(asset);
+                asset.Dnp3EventClass = 1;
+                resolvedDnp3PointClass = asset.Dnp3PointClass;
+                resolvedDnp3StaticVariation = asset.Dnp3StaticVariation;
+                resolvedDnp3Address = asset.Dnp3Address;
+            }
 
             using var conn = Database.GetConnection();
             using var cmd = conn.CreateCommand();
@@ -427,7 +446,7 @@ namespace OLRTLabSim.Controllers
                     bacnet_properties = @p20, modbus_register_type = @p22, modbus_ip = @p23, modbus_port = @p24,
                     modbus_alarm_address = @p25, modbus_alarm_bit = @p26,
                     dnp3_ip = @p27, dnp3_port = @p28, dnp3_outstation_address = @p29, dnp3_master_address = @p30,
-                    dnp3_point_class = @p31, dnp3_event_class = @p32, dnp3_static_variation = @p33
+                    dnp3_point_class = @p31, dnp3_event_class = @p32, dnp3_static_variation = @p33, dnp3_address = @p34
                 WHERE name = @p1
             ";
 
@@ -465,6 +484,7 @@ namespace OLRTLabSim.Controllers
             cmd.Parameters.AddWithValue("@p31", (object)(resolvedDnp3PointClass ?? "analog_output"));
             cmd.Parameters.AddWithValue("@p32", resolvedDnp3EventClass > 0 ? resolvedDnp3EventClass : 1);
             cmd.Parameters.AddWithValue("@p33", resolvedDnp3StaticVariation);
+            cmd.Parameters.AddWithValue("@p34", (object)(resolvedDnp3Address ?? "10.0.1.Value"));
 
             cmd.ExecuteNonQuery();
 
@@ -634,6 +654,29 @@ namespace OLRTLabSim.Controllers
             };
         }
 
+        private static void ResolveDnp3AddressFields(Asset asset)
+        {
+            var fallbackPointClass = (asset.SubType ?? "Analog").Equals("Digital", StringComparison.OrdinalIgnoreCase)
+                ? "binary_output"
+                : "analog_output";
+            var addressToken = string.IsNullOrWhiteSpace(asset.Dnp3Address) ? "10.0.1.Value" : asset.Dnp3Address.Trim();
+            if (TryParseDnp3Address(addressToken, out var group, out var variation, out var index))
+            {
+                asset.Address = index;
+                asset.Dnp3StaticVariation = Math.Max(0, variation);
+                asset.Dnp3PointClass = InferDnp3PointClassFromGroup(group, fallbackPointClass);
+                asset.Dnp3Address = $"{group}.{Math.Max(0, variation)}.{Math.Max(0, index)}.Value";
+                return;
+            }
+
+            asset.Address = Math.Max(0, asset.Address);
+            var finalVariation = Math.Max(0, (int)asset.Dnp3StaticVariation);
+            var finalGroup = fallbackPointClass.StartsWith("binary", StringComparison.OrdinalIgnoreCase) ? 10 : 40;
+            asset.Dnp3PointClass = fallbackPointClass;
+            asset.Dnp3StaticVariation = finalVariation;
+            asset.Dnp3Address = $"{finalGroup}.{finalVariation}.{Math.Max(0, asset.Address)}.Value";
+        }
+
 
         [Authorize(Roles = "admin,read_write")]
         [HttpPost("assets/import")]
@@ -696,11 +739,13 @@ namespace OLRTLabSim.Controllers
                 var parsedAddress = ParseAddressOrDefault(addr, i);
                 var dnp3PointClass = subType == "Digital" ? "binary_output" : "analog_output";
                 var dnp3Variation = 0;
+                var dnp3Address = "10.0.1.Value";
                 if (normalizedProtocol == "dnp3" && TryParseDnp3Address(addr, out var dnp3Group, out var parsedVariation, out var dnp3Index))
                 {
                     parsedAddress = dnp3Index;
                     dnp3Variation = Math.Max(0, parsedVariation);
                     dnp3PointClass = InferDnp3PointClassFromGroup(dnp3Group, dnp3PointClass);
+                    dnp3Address = $"{dnp3Group}.{dnp3Variation}.{Math.Max(0, dnp3Index)}.Value";
                 }
 
                 var model = new Asset
@@ -735,7 +780,8 @@ namespace OLRTLabSim.Controllers
                     Dnp3MasterAddress = 1,
                     Dnp3PointClass = dnp3PointClass,
                     Dnp3EventClass = 1,
-                    Dnp3StaticVariation = dnp3Variation
+                    Dnp3StaticVariation = dnp3Variation,
+                    Dnp3Address = dnp3Address
                 };
 
                 using var conn = Database.GetConnection();
@@ -757,9 +803,9 @@ namespace OLRTLabSim.Controllers
                     modbus_unit_id, modbus_register_type, modbus_ip, modbus_port,
                     modbus_alarm_address, modbus_alarm_bit,
                     dnp3_ip, dnp3_port, dnp3_outstation_address, dnp3_master_address,
-                    dnp3_point_class, dnp3_event_class, dnp3_static_variation, alarm_state
+                    dnp3_point_class, dnp3_event_class, dnp3_static_variation, dnp3_address, alarm_state
                 )
-                VALUES (@p1, @p1a, @p1b, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, 0)
+                VALUES (@p1, @p1a, @p1b, @p2, @p3, @p4, @p5, @p6, @p7, @p8, @p9, @p10, @p11, @p12, @p13, @p14, @p15, @p16, @p17, @p18, @p19, @p20, @p21, @p22, @p23, @p24, @p25, @p26, @p27, @p28, @p29, @p30, @p31, @p32, @p33, @p34, 0)
             ";
 
                 cmd.Parameters.Clear();
@@ -798,6 +844,7 @@ namespace OLRTLabSim.Controllers
                 cmd.Parameters.AddWithValue("@p31", model.Dnp3PointClass ?? "analog_output");
                 cmd.Parameters.AddWithValue("@p32", model.Dnp3EventClass);
                 cmd.Parameters.AddWithValue("@p33", model.Dnp3StaticVariation);
+                cmd.Parameters.AddWithValue("@p34", model.Dnp3Address ?? "10.0.1.Value");
 
                 cmd.ExecuteNonQuery();
 
