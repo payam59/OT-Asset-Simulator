@@ -736,6 +736,7 @@ namespace OLRTLabSim.Controllers
                     Dnp3PointClass = dnp3PointClass,
                     Dnp3EventClass = 1,
                     Dnp3StaticVariation = dnp3Variation
+
                 };
 
                 using var conn = Database.GetConnection();
