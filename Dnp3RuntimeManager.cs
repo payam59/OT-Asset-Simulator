@@ -302,6 +302,12 @@ namespace OLRTLabSim.Services
                             {
                                 StatusMessages[endpoint] = state == ConnectionState.Connected ? "connected" : "running";
                             }),
+                            // NOTE:
+                            // Step Function dnp3 supports multiple outstations per TCP server only when each
+                            // outstation uses a non-overlapping AddressFilter (master IP filter).
+                            // This implementation currently uses AddressFilter.Any() for every outstation.
+                            // Therefore, registering multiple outstations on one endpoint can fail due to
+                            // overlapping filters in the library.
                             AddressFilter.Any());
 
                         outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
@@ -369,7 +375,8 @@ namespace OLRTLabSim.Services
                 };
 
                 StatusMessages[endpoint] = outstationAddFailure
-                    ? $"warning: endpoint {endpoint} has mixed address pairs that share the same master IP filter; serving primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress}"
+                    ? $"warning: endpoint {endpoint} has mixed address pairs. The dnp3 server routes outstations by AddressFilter (client IP), and this runtime currently registers all outstations with AddressFilter.Any(). " +
+                      $"That causes an AddressFilter conflict in the library, so only the primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress} is served on this endpoint."
                     : "running";
             }
             catch (Exception ex)
@@ -383,6 +390,25 @@ namespace OLRTLabSim.Services
         private static string AddressKey(ushort outstationAddress, ushort masterAddress)
         {
             return $"{outstationAddress}:{masterAddress}";
+        }
+
+        private (bool hasExisting, ushort outstationAddress, ushort masterAddress) GetEndpointAddressPair(string endpoint)
+        {
+            if (!_endpointAssets.TryGetValue(endpoint, out var assetsAtEndpoint))
+                return (false, 0, 0);
+
+            lock (assetsAtEndpoint)
+            {
+                foreach (var assetName in assetsAtEndpoint)
+                {
+                    if (_assetIndex.TryGetValue(assetName, out var mapping))
+                    {
+                        return (true, mapping.OutstationAddress, mapping.MasterAddress);
+                    }
+                }
+            }
+
+            return (false, 0, 0);
         }
 
         private void InitializeDatabase(Database db, string endpoint, ushort outstationAddress, ushort masterAddress)
@@ -445,6 +471,17 @@ namespace OLRTLabSim.Services
             ushort outstationAddress = (ushort)(asset.Dnp3OutstationAddress <= 0 ? 10 : asset.Dnp3OutstationAddress);
             ushort masterAddress = (ushort)(asset.Dnp3MasterAddress <= 0 ? 1 : asset.Dnp3MasterAddress);
 
+            var endpointAddress = GetEndpointAddressPair(endpoint);
+            if (endpointAddress.hasExisting &&
+                (endpointAddress.outstationAddress != outstationAddress || endpointAddress.masterAddress != masterAddress))
+            {
+                StatusMessages[endpoint] =
+                    $"error: endpoint {endpoint} already uses DNP3 addresses {endpointAddress.outstationAddress}/{endpointAddress.masterAddress}. " +
+                    $"A single TCP endpoint can only host one outstation/master pair in this runtime. Use a different TCP port for {outstationAddress}/{masterAddress}, " +
+                    $"or keep all tags on {endpointAddress.outstationAddress}/{endpointAddress.masterAddress}.";
+                return;
+            }
+
             var mapping = new AssetMapping
             {
                 Endpoint = endpoint,
@@ -499,6 +536,17 @@ namespace OLRTLabSim.Services
                 ushort pointIndex = (ushort)Math.Max(0, asset.Address);
                 ushort outstationAddress = (ushort)(asset.Dnp3OutstationAddress <= 0 ? 10 : asset.Dnp3OutstationAddress);
                 ushort masterAddress = (ushort)(asset.Dnp3MasterAddress <= 0 ? 1 : asset.Dnp3MasterAddress);
+
+                var endpointAddress = GetEndpointAddressPair(endpoint);
+                if (endpointAddress.hasExisting &&
+                    (endpointAddress.outstationAddress != outstationAddress || endpointAddress.masterAddress != masterAddress))
+                {
+                    StatusMessages[endpoint] =
+                        $"error: endpoint {endpoint} already uses DNP3 addresses {endpointAddress.outstationAddress}/{endpointAddress.masterAddress}. " +
+                        $"A single TCP endpoint can only host one outstation/master pair in this runtime. Use a different TCP port for {outstationAddress}/{masterAddress}, " +
+                        $"or keep all tags on {endpointAddress.outstationAddress}/{endpointAddress.masterAddress}.";
+                    continue;
+                }
 
                 var mapping = new AssetMapping
                 {

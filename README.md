@@ -70,6 +70,7 @@ OT Asset Simulator is a web-based industrial protocol simulation platform for cr
   - Hosts DNP3 outstation endpoints.
   - Maintains point mappings, class/variation profiles, and command handlers.
   - Exposes endpoint/asset runtime status.
+  - Current runtime constraint: one outstation/master address pair per TCP endpoint (`ip:port`).
 
 ### Data and Models
 
@@ -167,6 +168,28 @@ You will be prompted to change the password on first use.
 2. Automatic value-change enhancement (future)
    - Move from simple uniform drift toward richer mode-based simulation policies.
 3. Expanded automated test coverage for protocol lifecycle/rebuild scenarios.
+4. DNP3 endpoint multiplexing
+   - The **library supports multiple outstations on one port** when each outstation has a **non-overlapping master IP `AddressFilter`**.
+   - The current limitation is mainly in **this project implementation**: this runtime currently binds all outstations with `AddressFilter.Any()`, so multiple outstations on the same endpoint conflict in the library.
+   - To simulate multiple DNP3 devices, use separate TCP ports (for example `20000`, `20001`, ...), or keep all tags under the same outstation/master pair.
+   - Library reference: Step Function DNP3 guide, TCP server / Adding Outstations (`AddOutstation` fails when filters overlap): https://docs.stepfunc.io/dnp3/1.1.0/guide/docs/api/outstation/tcp_server/
+
+### DNP3 addressing terms (important)
+
+- **Outstation address** (`dnp3_outstation_address`): DNP3 **link-layer station address** of the server device (not an IP address).
+- **Master address** (`dnp3_master_address`): DNP3 **link-layer station address** of the client/master (not an IP address).
+- **IP endpoint** (`dnp3_ip:dnp3_port`): TCP bind/listen socket (e.g., `0.0.0.0:20000`).
+- **AddressFilter**: library-side rule to decide which **master IP** may attach to a given outstation instance on that TCP server.
+
+Practical implications:
+
+- You do **not** need one local server IP per asset.
+- You only need unique master IP filters if you want multiple outstations on one TCP port in this library model.
+- If all masters come from the same host IP (e.g., one Kepware machine), master-IP filtering cannot distinguish outstations. In that case, either:
+  1. Use one outstation/master link-address pair for that port, or
+  2. Use separate TCP ports per simulated outstation.
+
+So yes — if your masters all originate from a single IP, “many server IPs on one port” is usually not useful; operationally it is similar in complexity to “one IP with many ports.”
 
 ---
 
