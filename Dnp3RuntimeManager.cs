@@ -302,6 +302,12 @@ namespace OLRTLabSim.Services
                             {
                                 StatusMessages[endpoint] = state == ConnectionState.Connected ? "connected" : "running";
                             }),
+                            // NOTE:
+                            // Step Function dnp3 supports multiple outstations per TCP server only when each
+                            // outstation uses a non-overlapping AddressFilter (master IP filter).
+                            // This implementation currently uses AddressFilter.Any() for every outstation.
+                            // Therefore, registering multiple outstations on one endpoint can fail due to
+                            // overlapping filters in the library.
                             AddressFilter.Any());
 
                         outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
@@ -369,7 +375,8 @@ namespace OLRTLabSim.Services
                 };
 
                 StatusMessages[endpoint] = outstationAddFailure
-                    ? $"warning: endpoint {endpoint} has mixed address pairs that share the same master IP filter; serving primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress}"
+                    ? $"warning: endpoint {endpoint} has mixed address pairs. The dnp3 server routes outstations by AddressFilter (client IP), and this runtime currently registers all outstations with AddressFilter.Any(). " +
+                      $"That causes an AddressFilter conflict in the library, so only the primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress} is served on this endpoint."
                     : "running";
             }
             catch (Exception ex)
