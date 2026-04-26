@@ -242,7 +242,7 @@ namespace OLRTLabSim.Services
             public CommandStatus OperateG41v4(double value, ushort index, OperateType opType, DatabaseHandle database) => OperateAnalog(value, index, database);
         }
 
-        public async Task EnsureEndpoint(string ip, int port)
+        public async Task EnsureEndpoint(string ip, int port, string? preferredAddressKey = null)
         {
             string endpoint = $"{ip}:{port}";
             if (_servers.ContainsKey(endpoint))
@@ -273,9 +273,25 @@ namespace OLRTLabSim.Services
                     .GroupBy(m => (m.OutstationAddress, m.MasterAddress))
                     .OrderByDescending(g => g.Count())
                     .ToList();
-                var primaryAddress = addressGroups[0].Key;
+                var selectedGroup = addressGroups[0];
+                if (!string.IsNullOrWhiteSpace(preferredAddressKey))
+                {
+                    var preferred = addressGroups.FirstOrDefault(g => AddressKey(g.Key.OutstationAddress, g.Key.MasterAddress) == preferredAddressKey);
+                    if (preferred != null)
+                    {
+                        selectedGroup = preferred;
+                    }
+                }
+                var primaryAddress = selectedGroup.Key;
+                var selectedGroups = new[] { selectedGroup };
 
-                foreach (var addressGroup in addressGroups)
+                if (addressGroups.Count > 1)
+                {
+                    StatusMessages[endpoint] =
+                        $"warning: mixed master/outstation addresses detected on {endpoint}; serving {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress}. Use unique endpoint per address pair.";
+                }
+
+                foreach (var addressGroup in selectedGroups)
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
                     var masterAddress = addressGroup.Key.MasterAddress;
@@ -481,14 +497,16 @@ namespace OLRTLabSim.Services
 
         private async Task RebuildEndpoint(string endpoint)
         {
+            string? preferredAddressKey = null;
             if (_servers.TryRemove(endpoint, out var existing))
             {
+                preferredAddressKey = existing.PrimaryAddressKey;
                 ShutdownServerContext(existing);
             }
 
             var parts = endpoint.Split(':');
             if (parts.Length != 2 || !int.TryParse(parts[1], out var port)) return;
-            await EnsureEndpoint(parts[0], port);
+            await EnsureEndpoint(parts[0], port, preferredAddressKey);
         }
 
         public async Task UnregisterAsset(string name)
