@@ -145,15 +145,21 @@ namespace OLRTLabSim.Services
             private readonly ConcurrentDictionary<string, AssetMapping> _assetIndex;
             private readonly ConcurrentDictionary<string, double> _pointValues;
             private readonly string _endpoint;
+            private readonly ushort _outstationAddress;
+            private readonly ushort _masterAddress;
 
             public ControlHandlerImpl(
                 ConcurrentDictionary<string, AssetMapping> assetIndex,
                 ConcurrentDictionary<string, double> pointValues,
-                string endpoint)
+                string endpoint,
+                ushort outstationAddress,
+                ushort masterAddress)
             {
                 _assetIndex = assetIndex;
                 _pointValues = pointValues;
                 _endpoint = endpoint;
+                _outstationAddress = outstationAddress;
+                _masterAddress = masterAddress;
             }
 
             public void BeginFragment() { }
@@ -163,6 +169,8 @@ namespace OLRTLabSim.Services
             {
                 return _assetIndex.Values.Any(m =>
                     m.Endpoint == _endpoint &&
+                    m.OutstationAddress == _outstationAddress &&
+                    m.MasterAddress == _masterAddress &&
                     m.PointIndex == index &&
                     (m.PointClass == "binary_output" || m.PointClass == "binary_output_command"));
             }
@@ -171,6 +179,8 @@ namespace OLRTLabSim.Services
             {
                 return _assetIndex.Values.Any(m =>
                     m.Endpoint == _endpoint &&
+                    m.OutstationAddress == _outstationAddress &&
+                    m.MasterAddress == _masterAddress &&
                     m.PointIndex == index &&
                     (m.PointClass == "analog_output" || m.PointClass == "analog_output_command"));
             }
@@ -181,6 +191,8 @@ namespace OLRTLabSim.Services
                 {
                     var mapping = entry.Value;
                     if (mapping.Endpoint != _endpoint ||
+                        mapping.OutstationAddress != _outstationAddress ||
+                        mapping.MasterAddress != _masterAddress ||
                         mapping.PointIndex != index) continue;
                     _pointValues[entry.Key] = value;
                 }
@@ -261,20 +273,13 @@ namespace OLRTLabSim.Services
                     .GroupBy(m => (m.OutstationAddress, m.MasterAddress))
                     .OrderByDescending(g => g.Count())
                     .ToList();
-                var selectedGroups = addressGroups.Take(1).ToList();
-                var primaryAddress = selectedGroups[0].Key;
+                var primaryAddress = addressGroups[0].Key;
 
-                if (addressGroups.Count > 1)
-                {
-                    StatusMessages[endpoint] =
-                        $"warning: mixed master/outstation addresses detected; serving primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress} on this endpoint";
-                }
-
-                foreach (var addressGroup in selectedGroups)
+                foreach (var addressGroup in addressGroups)
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
                     var masterAddress = addressGroup.Key.MasterAddress;
-                    var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint);
+                    var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint, outstationAddress, masterAddress);
                     var outstation = server.AddOutstation(
                         new OutstationConfig(outstationAddress, masterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
                         new OutstationAppImpl(),
@@ -286,7 +291,7 @@ namespace OLRTLabSim.Services
                         }),
                         AddressFilter.Any());
 
-                    outstation.Transaction(db => InitializeDatabase(db, endpoint));
+                    outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
                     outstations[AddressKey(outstationAddress, masterAddress)] = new OutstationContext
                     {
                         Outstation = outstation,
@@ -321,11 +326,13 @@ namespace OLRTLabSim.Services
             return $"{outstationAddress}:{masterAddress}";
         }
 
-        private void InitializeDatabase(Database db, string endpoint)
+        private void InitializeDatabase(Database db, string endpoint, ushort outstationAddress, ushort masterAddress)
         {
             var assets = _assetIndex
                 .Where(kv =>
-                    kv.Value.Endpoint == endpoint)
+                    kv.Value.Endpoint == endpoint &&
+                    kv.Value.OutstationAddress == outstationAddress &&
+                    kv.Value.MasterAddress == masterAddress)
                 .Select(kv => kv)
                 .ToList();
 
@@ -385,12 +392,12 @@ namespace OLRTLabSim.Services
                 PointClass = pointClass,
                 PointIndex = pointIndex,
                 Group = profile.group,
-                Variation = profile.variation,
+                Variation = Math.Max(0, (int)asset.Dnp3StaticVariation),
                 Writable = profile.writable,
                 DbName = profile.db,
                 OutstationAddress = outstationAddress,
                 MasterAddress = masterAddress,
-                KepwareAddress = $"{profile.group}.{profile.variation}.{pointIndex}.Value"
+                KepwareAddress = $"{profile.group}.{Math.Max(0, (int)asset.Dnp3StaticVariation)}.{pointIndex}.Value"
             };
 
             _assetIndex[name] = mapping;
@@ -440,12 +447,12 @@ namespace OLRTLabSim.Services
                     PointClass = pointClass,
                     PointIndex = pointIndex,
                     Group = profile.group,
-                    Variation = profile.variation,
+                    Variation = Math.Max(0, (int)asset.Dnp3StaticVariation),
                     Writable = profile.writable,
                     DbName = profile.db,
                     OutstationAddress = outstationAddress,
                     MasterAddress = masterAddress,
-                    KepwareAddress = $"{profile.group}.{profile.variation}.{pointIndex}.Value"
+                    KepwareAddress = $"{profile.group}.{Math.Max(0, (int)asset.Dnp3StaticVariation)}.{pointIndex}.Value"
                 };
 
                 _assetIndex[name] = mapping;
