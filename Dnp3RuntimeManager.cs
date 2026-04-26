@@ -385,7 +385,7 @@ namespace OLRTLabSim.Services
                 PointClass = pointClass,
                 PointIndex = pointIndex,
                 Group = profile.group,
-                Variation = profile.variation,
+                Variation = Math.Max(0, (int)asset.Dnp3StaticVariation),
                 Writable = profile.writable,
                 DbName = profile.db,
                 OutstationAddress = outstationAddress,
