@@ -390,7 +390,7 @@ namespace OLRTLabSim.Services
                 DbName = profile.db,
                 OutstationAddress = outstationAddress,
                 MasterAddress = masterAddress,
-                KepwareAddress = $"{profile.group}.{profile.variation}.{pointIndex}.Value"
+                KepwareAddress = $"{profile.group}.{Math.Max(0, (int)asset.Dnp3StaticVariation)}.{pointIndex}.Value"
             };
 
             _assetIndex[name] = mapping;
@@ -440,12 +440,12 @@ namespace OLRTLabSim.Services
                     PointClass = pointClass,
                     PointIndex = pointIndex,
                     Group = profile.group,
-                    Variation = profile.variation,
+                    Variation = Math.Max(0, (int)asset.Dnp3StaticVariation),
                     Writable = profile.writable,
                     DbName = profile.db,
                     OutstationAddress = outstationAddress,
                     MasterAddress = masterAddress,
-                    KepwareAddress = $"{profile.group}.{profile.variation}.{pointIndex}.Value"
+                    KepwareAddress = $"{profile.group}.{Math.Max(0, (int)asset.Dnp3StaticVariation)}.{pointIndex}.Value"
                 };
 
                 _assetIndex[name] = mapping;
