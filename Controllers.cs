@@ -704,16 +704,6 @@ namespace OLRTLabSim.Controllers
                     dnp3PointClass = InferDnp3PointClassFromGroup(dnp3Group, dnp3PointClass);
                 }
 
-                var parsedAddress = ParseAddressOrDefault(addr, i);
-                var dnp3PointClass = subType == "Digital" ? "binary_output" : "analog_output";
-                var dnp3Variation = 0;
-                if (normalizedProtocol == "dnp3" && TryParseDnp3Address(addr, out var dnp3Group, out var parsedVariation, out var dnp3Index))
-                {
-                    parsedAddress = dnp3Index;
-                    dnp3Variation = Math.Max(0, parsedVariation);
-                    dnp3PointClass = InferDnp3PointClassFromGroup(dnp3Group, dnp3PointClass);
-                }
-
                 var model = new Asset
                 {
                     Name = runtimeName,
