@@ -604,6 +604,37 @@ namespace OLRTLabSim.Controllers
             if (long.TryParse(matches[^1].Value, out var last)) return last;
             return fallback;
         }
+        private static bool TryParseDnp3Address(string raw, out int group, out int variation, out long index)
+        {
+            group = 0;
+            variation = 0;
+            index = 0;
+            if (string.IsNullOrWhiteSpace(raw)) return false;
+
+            var match = Regex.Match(raw.Trim(), @"^(?<group>\d+)\.(?<variation>\d+)\.(?<index>\d+)(?:\.|$)");
+            if (!match.Success) return false;
+
+            if (!int.TryParse(match.Groups["group"].Value, out group)) return false;
+            if (!int.TryParse(match.Groups["variation"].Value, out variation)) return false;
+            if (!long.TryParse(match.Groups["index"].Value, out index)) return false;
+            return true;
+        }
+
+        private static string InferDnp3PointClassFromGroup(int group, string fallbackPointClass)
+        {
+            return group switch
+            {
+                1 => "binary_input",
+                10 => "binary_output",
+                12 => "binary_output_command",
+                30 => "analog_input",
+                40 => "analog_output",
+                41 => "analog_output_command",
+                _ => fallbackPointClass
+            };
+        }
+
+
 
         private static bool TryParseDnp3Address(string raw, out int group, out int variation, out long index)
         {
@@ -693,6 +724,15 @@ namespace OLRTLabSim.Controllers
                 var tagName = (!string.IsNullOrWhiteSpace(description) ? description : tag).Replace(" ", "_");
                 var runtimeName = $"{assetGroupName}_{tagName}";
                 var subType = dataType.Equals("boolean", StringComparison.OrdinalIgnoreCase) ? "Digital" : "Analog";
+                var parsedAddress = ParseAddressOrDefault(addr, i);
+                var dnp3PointClass = subType == "Digital" ? "binary_output" : "analog_output";
+                var dnp3Variation = 0;
+                if (normalizedProtocol == "dnp3" && TryParseDnp3Address(addr, out var dnp3Group, out var parsedVariation, out var dnp3Index))
+                {
+                    parsedAddress = dnp3Index;
+                    dnp3Variation = Math.Max(0, parsedVariation);
+                    dnp3PointClass = InferDnp3PointClassFromGroup(dnp3Group, dnp3PointClass);
+                }
 
                 var parsedAddress = ParseAddressOrDefault(addr, i);
                 var dnp3PointClass = subType == "Digital" ? "binary_output" : "analog_output";
