@@ -70,6 +70,7 @@ OT Asset Simulator is a web-based industrial protocol simulation platform for cr
   - Hosts DNP3 outstation endpoints.
   - Maintains point mappings, class/variation profiles, and command handlers.
   - Exposes endpoint/asset runtime status.
+  - Current runtime constraint: one outstation/master address pair per TCP endpoint (`ip:port`).
 
 ### Data and Models
 
@@ -167,6 +168,9 @@ You will be prompted to change the password on first use.
 2. Automatic value-change enhancement (future)
    - Move from simple uniform drift toward richer mode-based simulation policies.
 3. Expanded automated test coverage for protocol lifecycle/rebuild scenarios.
+4. DNP3 endpoint multiplexing
+   - The current native runtime allows one outstation/master pair per listening TCP endpoint.
+   - To simulate multiple DNP3 devices, use separate TCP ports (for example `20000`, `20001`, ...), or keep all tags under the same outstation/master pair.
 
 ---
 
