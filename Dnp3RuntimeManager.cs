@@ -283,21 +283,62 @@ namespace OLRTLabSim.Services
                     }
                 }
                 var primaryAddress = selectedGroup.Key;
-                var selectedGroups = new[] { selectedGroup };
 
-                if (addressGroups.Count > 1)
-                {
-                    StatusMessages[endpoint] =
-                        $"warning: mixed master/outstation addresses detected on {endpoint}; serving {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress}. Use unique endpoint per address pair.";
-                }
-
-                foreach (var addressGroup in selectedGroups)
+                var outstationAddFailure = false;
+                string? outstationAddFailureMessage = null;
+                foreach (var addressGroup in addressGroups)
                 {
                     var outstationAddress = addressGroup.Key.OutstationAddress;
                     var masterAddress = addressGroup.Key.MasterAddress;
                     var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint, outstationAddress, masterAddress);
+                    try
+                    {
+                        var outstation = server.AddOutstation(
+                            new OutstationConfig(outstationAddress, masterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
+                            new OutstationAppImpl(),
+                            new OutstationInfoImpl(),
+                            controlHandler,
+                            ConnectionStateListener.create(state =>
+                            {
+                                StatusMessages[endpoint] = state == ConnectionState.Connected ? "connected" : "running";
+                            }),
+                            AddressFilter.Any());
+
+                        outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
+                        outstations[AddressKey(outstationAddress, masterAddress)] = new OutstationContext
+                        {
+                            Outstation = outstation,
+                            ControlHandler = controlHandler,
+                            Endpoint = endpoint,
+                            OutstationAddress = outstationAddress,
+                            MasterAddress = masterAddress
+                        };
+                    }
+                    catch (Exception ex)
+                    {
+                        outstationAddFailure = true;
+                        outstationAddFailureMessage = ex.Message;
+                        break;
+                    }
+                }
+
+                if (outstationAddFailure && outstations.Count == 0)
+                {
+                    throw new InvalidOperationException($"unable to initialize DNP3 outstation on {endpoint}: {outstationAddFailureMessage}");
+                }
+
+                if (outstationAddFailure)
+                {
+                    try { server.Shutdown(); } catch { }
+                    server = OutstationServer.CreateTcpServer(_runtime, LinkErrorMode.Close, endpoint);
+
+                    var primaryOutstationAddress = primaryAddress.OutstationAddress;
+                    var primaryMasterAddress = primaryAddress.MasterAddress;
+                    outstations.Clear();
+
+                    var controlHandler = new ControlHandlerImpl(_assetIndex, _pointValues, endpoint, primaryOutstationAddress, primaryMasterAddress);
                     var outstation = server.AddOutstation(
-                        new OutstationConfig(outstationAddress, masterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
+                        new OutstationConfig(primaryOutstationAddress, primaryMasterAddress, new EventBufferConfig(100, 100, 100, 100, 100, 100, 100, 100)),
                         new OutstationAppImpl(),
                         new OutstationInfoImpl(),
                         controlHandler,
@@ -307,14 +348,14 @@ namespace OLRTLabSim.Services
                         }),
                         AddressFilter.Any());
 
-                    outstation.Transaction(db => InitializeDatabase(db, endpoint, outstationAddress, masterAddress));
-                    outstations[AddressKey(outstationAddress, masterAddress)] = new OutstationContext
+                    outstation.Transaction(db => InitializeDatabase(db, endpoint, primaryOutstationAddress, primaryMasterAddress));
+                    outstations[AddressKey(primaryOutstationAddress, primaryMasterAddress)] = new OutstationContext
                     {
                         Outstation = outstation,
                         ControlHandler = controlHandler,
                         Endpoint = endpoint,
-                        OutstationAddress = outstationAddress,
-                        MasterAddress = masterAddress
+                        OutstationAddress = primaryOutstationAddress,
+                        MasterAddress = primaryMasterAddress
                     };
                 }
 
@@ -327,7 +368,9 @@ namespace OLRTLabSim.Services
                     PrimaryAddressKey = AddressKey(primaryAddress.OutstationAddress, primaryAddress.MasterAddress)
                 };
 
-                StatusMessages[endpoint] = "running";
+                StatusMessages[endpoint] = outstationAddFailure
+                    ? $"warning: endpoint {endpoint} has mixed address pairs that share the same master IP filter; serving primary pair {primaryAddress.OutstationAddress}/{primaryAddress.MasterAddress}"
+                    : "running";
             }
             catch (Exception ex)
             {
